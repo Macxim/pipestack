@@ -10,6 +10,9 @@ export type Lead = {
   notes?: string;
   followUpDate?: string;
   createdAt?: string;
+  avatarUrl?: string;
+  profileUrl?: string;
+  platform?: string;
 };
 
 export type Stage = {
