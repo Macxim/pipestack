@@ -17,18 +17,34 @@ const statusLabel: Record<string, string> = {
 type Props = {
   lead: Lead;
   onClick?: () => void;
+  onDelete?: (e: React.MouseEvent) => void;
 };
 
-export default function LeadCard({ lead, onClick }: Props) {
+export default function LeadCard({ lead, onClick, onDelete }: Props) {
   return (
     <div
       onClick={onClick}
-      className="bg-white rounded-lg border border-gray-200 p-3 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-300 transition-colors"
+      className="group relative bg-white rounded-lg border border-gray-200 p-3 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-300 transition-colors"
     >
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-medium text-gray-800 leading-snug">
           {lead.name}
         </p>
+
+        {onDelete && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(e);
+            }}
+            className="opacity-0 group-hover:opacity-100 p-1 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded transition-all shrink-0"
+            title="Delete lead"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       {lead.value > 0 && (

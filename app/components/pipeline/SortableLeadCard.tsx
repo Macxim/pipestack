@@ -6,9 +6,10 @@ import LeadCard from "./LeadCard";
 type Props = {
   lead: Lead;
   onClick?: () => void;
+  onDelete?: () => void;
 };
 
-export default function SortableLeadCard({ lead, onClick }: Props) {
+export default function SortableLeadCard({ lead, onClick, onDelete }: Props) {
   const {
     attributes,
     listeners,
@@ -26,7 +27,7 @@ export default function SortableLeadCard({ lead, onClick }: Props) {
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <LeadCard lead={lead} onClick={onClick} />
+      <LeadCard lead={lead} onClick={onClick} onDelete={onDelete} />
     </div>
   );
 }

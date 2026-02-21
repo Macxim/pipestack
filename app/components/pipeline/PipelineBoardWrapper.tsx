@@ -44,6 +44,20 @@ export default function PipelineBoardWrapper({ initialPipeline }: Props) {
           }));
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "leads" },
+        (payload) => {
+          const row = payload.old;
+          setPipeline((prev) => ({
+            ...prev,
+            stages: prev.stages.map((stage) => ({
+              ...stage,
+              leads: stage.leads.filter((lead) => lead.id !== row.id),
+            })),
+          }));
+        }
+      )
       .subscribe();
 
     return () => {

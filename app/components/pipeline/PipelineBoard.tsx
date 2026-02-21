@@ -126,13 +126,38 @@ export default function PipelineBoard({ pipeline: initial }: Props) {
   };
 
   const handleRenameStage = (stageId: string, newTitle: string) => {
-  setPipeline((prev) => ({
-    ...prev,
-    stages: prev.stages.map((s) =>
-      s.id === stageId ? { ...s, title: newTitle } : s
-    ),
-  }));
-};
+    setPipeline((prev) => ({
+      ...prev,
+      stages: prev.stages.map((s) =>
+        s.id === stageId ? { ...s, title: newTitle } : s
+      ),
+    }));
+  };
+
+  const handleLeadDelete = async (leadId: string) => {
+    try {
+      const res = await fetch(`/api/leads?id=${leadId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Failed to delete lead");
+      }
+
+      // Local state update as fallback/speed optimization
+      setPipeline((prev) => ({
+        ...prev,
+        stages: prev.stages.map((stage) => ({
+          ...stage,
+          leads: stage.leads.filter((l) => l.id !== leadId),
+        })),
+      }));
+    } catch (err) {
+      console.error("Delete error:", err);
+      alert("Failed to delete lead. Please try again.");
+    }
+  };
 
   return (
     <>
@@ -150,6 +175,7 @@ export default function PipelineBoard({ pipeline: initial }: Props) {
               onCardClick={(lead) => handleCardClick(lead, stage.title)}
               onDelete={handleDeleteStage}
               onRename={handleRenameStage}
+              onLeadDelete={handleLeadDelete}
             />
           ))}
           <AddStageButton onAdd={handleAddStage} />

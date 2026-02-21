@@ -14,12 +14,13 @@ type Props = {
   onCardClick: (lead: Lead) => void;
   onDelete: (stageId: string) => void;
   onRename: (stageId: string, newTitle: string) => void;
+  onLeadDelete: (leadId: string) => void;
 };
 
 const totalValue = (stage: Stage) =>
   stage.leads.reduce((sum, l) => sum + l.value, 0);
 
-export default function StageColumn({ stage, onCardClick, onDelete, onRename }: Props) {
+export default function StageColumn({ stage, onCardClick, onDelete, onRename, onLeadDelete }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
   const [isEditing, setIsEditing] = useState(false);
   const [titleValue, setTitleValue] = useState(stage.title);
@@ -116,6 +117,7 @@ export default function StageColumn({ stage, onCardClick, onDelete, onRename }: 
               key={lead.id}
               lead={lead}
               onClick={() => onCardClick(lead)}
+              onDelete={() => onLeadDelete(lead.id)}
             />
           ))}
         </SortableContext>
