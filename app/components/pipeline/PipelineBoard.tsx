@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   DndContext,
   DragEndEvent,
   DragOverEvent,
+  DragStartEvent,
   PointerSensor,
   useSensor,
   useSensors,
@@ -43,6 +44,14 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
 
   // ─── Drag and drop ──────────────────────────────────────────────
 
+  // Track where the lead originally came from before DragOver moves it
+  const dragSourceStageId = useRef<string | null>(null);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    const stage = findStageOfLead(event.active.id as string);
+    dragSourceStageId.current = stage?.id ?? null;
+  };
+
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
     if (!over) return;
@@ -70,39 +79,53 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
+    const sourceStageId = dragSourceStageId.current;
+    dragSourceStageId.current = null;
+
     if (!over) return;
 
     const activeStage = findStageOfLead(active.id as string);
-    const overStage = findStageOfLead(over.id as string);
+    if (!activeStage) return;
 
-    if (!activeStage || !overStage || activeStage.id !== overStage.id) return;
+    // Same-column reorder
+    if (activeStage.id === (findStageOfLead(over.id as string)?.id)) {
+      const oldIndex = activeStage.leads.findIndex((l) => l.id === active.id);
+      const newIndex = activeStage.leads.findIndex((l) => l.id === over.id);
 
-    const oldIndex = activeStage.leads.findIndex((l) => l.id === active.id);
-    const newIndex = overStage.leads.findIndex((l) => l.id === over.id);
+      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+        const newLeads = arrayMove(activeStage.leads, oldIndex, newIndex);
 
-    if (oldIndex === newIndex) return;
+        onPipelineChange({
+          ...pipeline,
+          stages: pipeline.stages.map((stage) =>
+            stage.id === activeStage.id ? { ...stage, leads: newLeads } : stage
+          ),
+        });
+      }
+    }
 
-    const newLeads = arrayMove(activeStage.leads, oldIndex, newIndex);
+    // Persist: collect leads from all affected stages (source + destination)
+    const affectedStageIds = new Set<string>();
+    affectedStageIds.add(activeStage.id);
+    if (sourceStageId && sourceStageId !== activeStage.id) {
+      affectedStageIds.add(sourceStageId);
+    }
 
-    onPipelineChange({
-      ...pipeline,
-      stages: pipeline.stages.map((stage) =>
-        stage.id === activeStage.id ? { ...stage, leads: newLeads } : stage
-      ),
-    });
+    // Use the latest pipeline state after any reorder above
+    const latestPipeline = pipeline;
+    const leadsToPersist = latestPipeline.stages
+      .filter((s) => affectedStageIds.has(s.id))
+      .flatMap((s) =>
+        s.leads.map((l, i) => ({ id: l.id, stageId: s.id, position: i }))
+      );
 
-    // Persist reorder
-    fetch("/api/leads/reorder", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        leads: newLeads.map((l, i) => ({
-          id: l.id,
-          stageId: activeStage.id,
-          position: i,
-        })),
-      }),
-    }).catch(console.error);
+    if (leadsToPersist.length > 0) {
+      fetch("/api/leads/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leads: leadsToPersist }),
+      }).catch(console.error);
+    }
   };
 
   // ─── Lead actions ───────────────────────────────────────────────
@@ -235,6 +258,7 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
         id="pipeline-dnd-context"
         sensors={sensors}
         collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
