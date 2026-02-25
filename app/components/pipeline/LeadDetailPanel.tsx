@@ -24,9 +24,29 @@ export default function LeadDetailPanel({ lead, stageName, onClose, onSave }: Pr
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSave = () => {
-    onSave(form);
-    onClose();
+  const handleSave = async () => {
+    try {
+      const res = await fetch(`/api/leads/${form.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          value: form.value,
+          status: form.status,
+          email: form.email,
+          phone: form.phone,
+          notes: form.notes,
+          followUpDate: form.followUpDate,
+        }),
+      });
+
+      if (!res.ok) throw new Error("Failed to save");
+
+      onSave(form);
+      onClose();
+    } catch {
+      alert("Failed to save changes. Please try again.");
+    }
   };
 
   return (

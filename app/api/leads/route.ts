@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createClient } from "@supabase/supabase-js";
+import { getUserFromRequest } from "@/lib/get-user-from-request";
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
+    const userId = await getUserFromRequest(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -15,11 +19,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Name is required." }, { status: 400 });
     }
 
-    // Get user's first stage
-    const { data: stage } = await supabase
+    const { data: stage } = await supabaseAdmin
       .from("stages")
       .select("id")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .order("position", { ascending: true })
       .limit(1)
       .single();
@@ -28,11 +31,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No stages found." }, { status: 404 });
     }
 
-    const { data: lead, error } = await supabase
+    const { data: lead, error } = await supabaseAdmin
       .from("leads")
       .insert({
         stage_id: stage.id,
-        user_id: user.id,
+        user_id: userId,
         name: body.name.trim(),
         value: 0,
         status: "none",
@@ -49,8 +52,7 @@ export async function POST(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ success: true, lead }, { status: 201 });
-  } catch (err) {
-    console.error("Lead create error:", err);
+  } catch {
     return NextResponse.json({ error: "Server error." }, { status: 500 });
   }
 }
@@ -61,10 +63,8 @@ export async function GET() {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
+    const userId = await getUserFromRequest(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -75,7 +75,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Lead ID is required." }, { status: 400 });
     }
 
-    const { data: lead, error } = await supabase
+    const { data: lead, error } = await supabaseAdmin
       .from("leads")
       .update({
         name: updates.name,
@@ -91,7 +91,7 @@ export async function PATCH(req: NextRequest) {
         stage_id: updates.stageId,
       })
       .eq("id", id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .select()
       .single();
 
@@ -100,18 +100,15 @@ export async function PATCH(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, lead });
-  } catch (err) {
-    console.error("Lead update error:", err);
-    return NextResponse.json({ error: "Internal server error." }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Server error." }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
+    const userId = await getUserFromRequest(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -122,19 +119,18 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Lead ID is required." }, { status: 400 });
     }
 
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("leads")
       .delete()
       .eq("id", id)
-      .eq("user_id", user.id);
+      .eq("user_id", userId);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
-  } catch (err) {
-    console.error("Lead delete error:", err);
-    return NextResponse.json({ error: "Internal server error." }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Server error." }, { status: 500 });
   }
 }

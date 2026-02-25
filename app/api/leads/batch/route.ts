@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createClient } from "@supabase/supabase-js";
+import { getUserFromRequest } from "@/lib/get-user-from-request";
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
+    const userId = await getUserFromRequest(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -19,10 +23,10 @@ export async function POST(req: NextRequest) {
 
     let targetStageId = stageId;
     if (!targetStageId) {
-      const { data: stage } = await supabase
+      const { data: stage } = await supabaseAdmin
         .from("stages")
         .select("id")
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .order("position", { ascending: true })
         .limit(1)
         .single();
@@ -33,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     const rows = leads.map((lead: any) => ({
       stage_id: targetStageId,
-      user_id: user.id,
+      user_id: userId,
       name: lead.name.trim(),
       value: 0,
       status: "none",
@@ -42,7 +46,7 @@ export async function POST(req: NextRequest) {
       avatar_url: lead.avatarUrl ?? null,
     }));
 
-    const { data, error } = await supabase.from("leads").insert(rows).select();
+    const { data, error } = await supabaseAdmin.from("leads").insert(rows).select();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

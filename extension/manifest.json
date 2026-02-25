@@ -5,7 +5,8 @@
   "description": "Import leads from Facebook and Instagram into your Pipestack",
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "scripting"
   ],
   "host_permissions": [
     "https://www.facebook.com/*",

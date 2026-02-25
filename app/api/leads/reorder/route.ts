@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase-server";
+import { createClient } from "@supabase/supabase-js";
+import { getUserFromRequest } from "@/lib/get-user-from-request";
+
+const supabaseAdmin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = await createSupabaseServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
+    const userId = await getUserFromRequest(req);
+    if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -19,15 +23,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Update each lead's stage and position
-    // The .eq("user_id", user.id) ensures users can only reorder their own leads
     const results = await Promise.all(
       leads.map((l: any) =>
-        supabase
+        supabaseAdmin
           .from("leads")
           .update({ stage_id: l.stageId, position: l.position })
           .eq("id", l.id)
-          .eq("user_id", user.id) // security: can't touch other users' leads
+          .eq("user_id", userId)
       )
     );
 
@@ -37,8 +39,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch (err) {
-    console.error("Reorder error:", err);
-    return NextResponse.json({ error: "Internal server error." }, { status: 500 });
+  } catch {
+    return NextResponse.json({ error: "Server error." }, { status: 500 });
   }
 }

@@ -1,75 +1,70 @@
-document.addEventListener("DOMContentLoaded", async () => {
-  const content = document.getElementById("content");
+document.addEventListener("DOMContentLoaded", () => {
+  const body = document.getElementById("body");
 
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const url = tab?.url ?? "";
-
-  const isSupported =
-    url.includes("facebook.com") || url.includes("instagram.com");
-
-  if (!isSupported) {
-    content.innerHTML = `
-      <div class="status">
-        Navigate to a Facebook or Instagram profile to import a lead.
-      </div>
-    `;
-    return;
-  }
-
-  const [result] = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: () => {
-      const url = window.location.href;
-      const isFacebook = url.includes("facebook.com");
-      const nameEl = document.querySelector("h1") ?? document.querySelector("h2");
-      return {
-        name: nameEl?.textContent?.trim() ?? "Unknown",
-        profileUrl: url,
-        platform: isFacebook ? "facebook" : "instagram",
-      };
-    },
+  // Check if API key is already saved
+  chrome.runtime.sendMessage({ type: "GET_API_KEY" }, (response) => {
+    if (response?.key) {
+      renderConnected(response.key);
+    } else {
+      renderSetup();
+    }
   });
 
-  const lead = result?.result;
-
-  if (!lead || lead.name === "Unknown") {
-    content.innerHTML = `
-      <div class="status error">
-        Could not detect a profile on this page. Try navigating directly to a profile.
+  function renderConnected(key) {
+    body.innerHTML = `
+      <div class="connected">
+        ✓ Connected to your pipeline
       </div>
+      <div class="label">Your API Key</div>
+      <input type="text" value="${key}" readonly id="key-display" />
+      <button class="btn secondary" id="change-btn">Change API Key</button>
+      <hr class="divider" />
+      <div class="status" id="page-status">Navigate to a Facebook or Instagram profile to import leads.</div>
     `;
-    return;
+
+    document.getElementById("change-btn").addEventListener("click", renderSetup);
+
+    // Also check current tab
+    checkCurrentTab();
   }
 
-  content.innerHTML = `
-    <div class="lead-info">
-      <div class="lead-name">${lead.name}</div>
-      <div class="lead-platform">${lead.platform} · ${lead.profileUrl.split("/")[3] ?? ""}</div>
-    </div>
-    <button class="btn" id="add-btn">+ Add to Pipestack</button>
-    <div id="result" class="status" style="margin-top:10px"></div>
-  `;
+  function renderSetup() {
+    body.innerHTML = `
+      <p style="font-size:12px; color:#6b7280; margin-bottom:12px; line-height:1.5;">
+        Paste your API key from the pipeline app to connect your extension.
+      </p>
+      <div class="label">API Key</div>
+      <input type="text" id="api-key-input" placeholder="pk_..." />
+      <button class="btn" id="save-btn">Save & Connect</button>
+      <div class="status" id="save-status"></div>
+    `;
 
-  document.getElementById("add-btn").addEventListener("click", async () => {
-    const btn = document.getElementById("add-btn");
-    const resultEl = document.getElementById("result");
-    btn.disabled = true;
-    btn.textContent = "Adding...";
-
-    chrome.runtime.sendMessage(
-      { type: "SEND_LEAD", payload: lead },
-      (response) => {
-        if (response?.success) {
-          resultEl.textContent = "✓ Lead added!";
-          resultEl.className = "status success";
-          btn.textContent = "✓ Done";
-        } else {
-          resultEl.textContent = "✗ Failed. Is your app running on localhost:3000?";
-          resultEl.className = "status error";
-          btn.disabled = false;
-          btn.textContent = "+ Add to Pipestack";
-        }
+    document.getElementById("save-btn").addEventListener("click", () => {
+      const key = document.getElementById("api-key-input").value.trim();
+      if (!key || !key.startsWith("pk_")) {
+        document.getElementById("save-status").textContent = "Invalid key. It should start with pk_";
+        document.getElementById("save-status").className = "status error";
+        return;
       }
-    );
-  });
+
+      chrome.runtime.sendMessage({ type: "SAVE_API_KEY", key }, (res) => {
+        if (res?.success) {
+          renderConnected(key);
+        }
+      });
+    });
+  }
+
+  function checkCurrentTab() {
+    chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+      const url = tab?.url ?? "";
+      const statusEl = document.getElementById("page-status");
+      if (!statusEl) return;
+
+      if (url.includes("facebook.com") || url.includes("instagram.com")) {
+        statusEl.textContent = "✓ Active on this page";
+        statusEl.className = "status success";
+      }
+    });
+  }
 });
