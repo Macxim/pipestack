@@ -11,7 +11,8 @@
   "host_permissions": [
     "https://www.facebook.com/*",
     "https://www.instagram.com/*",
-    "http://localhost:3000/*"
+    "http://localhost:3000/*",
+    "https://pipestack.vercel.app/*"
   ],
   "background": {
     "service_worker": "background.js"

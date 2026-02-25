@@ -1,5 +1,3 @@
-const API_BASE = "http://localhost:3000";
-
 // On install, check if we have a stored API key
 chrome.runtime.onInstalled.addListener(() => {
   chrome.storage.local.get("apiKey", (result) => {
@@ -37,6 +35,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     });
     return true;
   }
+
+  if (message.type === "SAVE_API_BASE") {
+    chrome.storage.local.set({ apiBase: message.url }, () => {
+      sendResponse({ success: true });
+    });
+    return true;
+  }
+
+  if (message.type === "GET_API_BASE") {
+    chrome.storage.local.get("apiBase", (result) => {
+      sendResponse({ url: result.apiBase ?? "https://pipestack.vercel.app" });
+    });
+    return true;
+  }
 });
 
 async function getApiKey() {
@@ -47,11 +59,19 @@ async function getApiKey() {
   });
 }
 
+async function getApiBase() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get("apiBase", (result) => {
+      resolve(result.apiBase ?? "https://pipestack.vercel.app");
+    });
+  });
+}
+
 async function sendLeadToApp(lead) {
-  const apiKey = await getApiKey();
+  const [apiKey, apiBase] = await Promise.all([getApiKey(), getApiBase()]);
   if (!apiKey) throw new Error("No API key set. Click the extension icon to add your key.");
 
-  const res = await fetch(`${API_BASE}/api/leads`, {
+  const res = await fetch(`${apiBase}/api/leads`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -69,10 +89,10 @@ async function sendLeadToApp(lead) {
 }
 
 async function sendLeadsBatch(payload) {
-  const apiKey = await getApiKey();
+  const [apiKey, apiBase] = await Promise.all([getApiKey(), getApiBase()]);
   if (!apiKey) throw new Error("No API key set. Click the extension icon to add your key.");
 
-  const res = await fetch(`${API_BASE}/api/leads/batch`, {
+  const res = await fetch(`${apiBase}/api/leads/batch`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
