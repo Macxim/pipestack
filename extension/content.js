@@ -37,13 +37,13 @@ function safeSendMessage(message, callback) {
   try {
     chrome.runtime.sendMessage(message, (response) => {
       if (chrome.runtime.lastError) {
-        showToast("✗ Extension error. Please refresh the page.", true);
+        showToast("Extension error. Please refresh the page.", true);
         return;
       }
       callback(response);
     });
   } catch (e) {
-    showToast("✗ Extension was reloaded. Please refresh the page.", true);
+    showToast("Extension was reloaded. Please refresh the page.", true);
   }
 }
 
@@ -95,7 +95,7 @@ function injectProfileButton() {
         type: "SEND_LEAD",
         payload: {
           name,
-          profileUrl: window.location.href,
+          profileUrl: cleanProfileUrl(window.location.href),
           platform: window.location.href.includes("instagram") ? "instagram" : "facebook",
         },
       },
@@ -301,14 +301,14 @@ function scrapeCommenters(postRoot) {
 function findCommentNodes(root) {
   const all = Array.from(root.querySelectorAll("[role='article']"));
 
-  return all.filter((node) => {
-    if (node === root) return false;
+  // The FIRST article is always the post itself — skip it
+  const withoutPostRoot = all.slice(1);
 
-    // Must contain at least one <a> tag with text (any link is fine)
-    const hasAnyLink = !!node.querySelector("a[href]");
-    if (!hasAnyLink) return false;
+  return withoutPostRoot.filter((node) => {
+    // Must contain at least one link
+    if (!node.querySelector("a[href]")) return false;
 
-    // Skip containers that wrap many articles (thread wrappers, post root)
+    // Skip containers wrapping many nested articles (thread wrappers)
     const nested = node.querySelectorAll("[role='article']").length;
     if (nested > 3) return false;
 
@@ -326,24 +326,38 @@ function extractFromCommentNodes(nodes) {
     const { name, profileUrl } = result;
     if (commenters.has(name)) return;
 
-    // Standard img tags
-    let avatar =
-      node.querySelector("img[src*='fbcdn']")?.src ??
-      node.querySelector("img[src*='scontent']")?.src;
+    // Avatar strategy:
+    // 1. The hidden avatar <a aria-hidden="true"> always contains the profile pic
+    //    either as a regular <img> or as an SVG <image xlink:href>
+    // 2. Fall back to any fbcdn img/image elsewhere in the node
 
-    // Facebook sometimes uses SVG/Image tags or nested containers
+    let avatar = null;
+
+    // Look inside the hidden avatar anchor first — most reliable
+    const avatarAnchor = node.querySelector("a[aria-hidden='true']");
+    if (avatarAnchor) {
+      avatar =
+        avatarAnchor.querySelector("image")?.getAttribute("xlink:href") ??
+        avatarAnchor.querySelector("img[src*='fbcdn']")?.src ??
+        avatarAnchor.querySelector("img[src*='scontent']")?.src ??
+        null;
+    }
+
+    // Fallback: any fbcdn image anywhere in the comment node
     if (!avatar) {
-      const img = node.querySelector("image");
-      if (img && img.getAttribute("xlink:href")) {
-        avatar = img.getAttribute("xlink:href");
-      }
+      avatar =
+        node.querySelector("img[src*='fbcdn']")?.src ??
+        node.querySelector("img[src*='scontent']")?.src ??
+        node.querySelector("image[*|href*='fbcdn']")?.getAttribute("xlink:href") ??
+        node.querySelector("image")?.getAttribute("xlink:href") ??
+        null;
     }
 
     commenters.set(name, {
       name,
       profileUrl: cleanProfileUrl(profileUrl),
       platform: "facebook",
-      avatarUrl: avatar || null,
+      avatarUrl: avatar,
     });
   });
 
@@ -418,8 +432,7 @@ function cleanProfileUrl(url) {
   try {
     const u = new URL(url);
 
-    // Handle the group membership URL specifically
-    // Pattern: /groups/ID/user/USER_ID/
+    // 1. Handle Group Membership URLs: /groups/GROUP_ID/user/USER_ID/
     if (u.pathname.includes("/groups/") && u.pathname.includes("/user/")) {
       const match = u.pathname.match(/\/user\/(\d+)/);
       if (match) {
@@ -427,12 +440,26 @@ function cleanProfileUrl(url) {
       }
     }
 
+    // 2. Handle numeric IDs: facebook.com/profile.php?id=...
     if (u.searchParams.has("id")) {
       return `https://www.facebook.com/profile.php?id=${u.searchParams.get("id")}`;
     }
 
-    // For people/Name/ID or vanity URLs, strip everything after the main profile path
+    // 3. Handle vanity URLs and people/Name/ID
+    // Also remove group context if URL is like /groups/.../posts/... but links to a user (unlikely but safe)
     let path = u.pathname.replace(/\/$/, "");
+
+    // If it's a vanity URL, it should just be /username
+    const segments = path.split("/").filter(Boolean);
+    if (segments.length === 1) {
+      return `https://www.facebook.com/${segments[0]}`;
+    }
+
+    // For people/Name/ID or other complex paths, take only the first two segments if it's "people/name"
+    if (segments[0] === "people" && segments.length >= 2) {
+      return `https://www.facebook.com/people/${segments[1]}/${segments[2] || ""}`.replace(/\/$/, "");
+    }
+
     return `${u.protocol}//${u.host}${path}`;
   } catch (e) {
     return url;

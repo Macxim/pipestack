@@ -1,5 +1,5 @@
 import AppShell from "./components/layout/AppShell";
-import PipelineBoard from "./components/pipeline/PipelineBoard";
+import PipelineBoardWrapper from "./components/pipeline/PipelineBoardWrapper";
 import { supabase } from "@/lib/supabase";
 import { Pipeline } from "./types/pipeline";
 
@@ -57,8 +57,8 @@ export default async function Home() {
   };
 
   return (
-    <AppShell>
-      <PipelineBoard pipeline={pipelineData} />
+    <AppShell title={pipelineData.title} pipelineId={pipelineData.id}>
+      <PipelineBoardWrapper initialPipeline={pipelineData} />
     </AppShell>
   );
 }

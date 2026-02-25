@@ -2,6 +2,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Lead } from "@/app/types/pipeline";
 import LeadCard from "./LeadCard";
+import { useEffect, useState } from "react";
 
 type Props = {
   lead: Lead;
@@ -10,6 +11,12 @@ type Props = {
 };
 
 export default function SortableLeadCard({ lead, onClick, onDelete }: Props) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const {
     attributes,
     listeners,
@@ -26,7 +33,12 @@ export default function SortableLeadCard({ lead, onClick, onDelete }: Props) {
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...(mounted ? attributes : {})}
+      {...(mounted ? listeners : {})}
+    >
       <LeadCard lead={lead} onClick={onClick} onDelete={onDelete} />
     </div>
   );

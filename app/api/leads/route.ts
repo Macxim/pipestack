@@ -67,6 +67,46 @@ export async function GET() {
   return NextResponse.json({ status: "ok", message: "Leads API is running" });
 }
 
+export async function PATCH(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const { id, ...updates } = body;
+
+    if (!id) {
+      return NextResponse.json({ error: "Lead ID is required." }, { status: 400 });
+    }
+
+    const { data: lead, error } = await supabase
+      .from("leads")
+      .update({
+        name: updates.name,
+        value: updates.value,
+        status: updates.status,
+        email: updates.email,
+        phone: updates.phone,
+        notes: updates.notes,
+        avatar_url: updates.avatarUrl,
+        profile_url: updates.profileUrl,
+        platform: updates.platform,
+        follow_up_date: updates.followUpDate,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, lead });
+  } catch {
+    return NextResponse.json(
+      { error: "Internal server error." },
+      { status: 500 }
+    );
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);

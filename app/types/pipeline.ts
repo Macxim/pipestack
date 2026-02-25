@@ -3,7 +3,7 @@ export type LeadStatus = "overdue" | "today" | "upcoming" | "none";
 export type Lead = {
   id: string;
   name: string;
-  value: number;
+  value?: number;
   status: LeadStatus;
   email?: string;
   phone?: string;

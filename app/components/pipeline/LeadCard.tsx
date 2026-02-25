@@ -105,12 +105,6 @@ export default function LeadCard({ lead, onClick, onDelete }: Props) {
           )}
 
           <div className="flex items-center justify-between mt-1">
-            {lead.value > 0 && (
-              <p className="text-xs font-medium text-blue-600">
-                ${lead.value.toLocaleString()}
-              </p>
-            )}
-
             {lead.status !== "none" && (
               <span
                 className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${statusStyles[lead.status]}`}
