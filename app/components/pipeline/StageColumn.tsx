@@ -18,7 +18,7 @@ type Props = {
 };
 
 const totalValue = (stage: Stage) =>
-  stage.leads.reduce((sum, l) => sum + l.value, 0);
+  stage.leads.reduce((sum, l) => sum + (l.value || 0), 0);
 
 export default function StageColumn({ stage, onCardClick, onDelete, onRename, onLeadDelete }: Props) {
   const { setNodeRef, isOver } = useDroppable({ id: stage.id });
