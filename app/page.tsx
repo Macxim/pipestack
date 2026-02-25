@@ -1,22 +1,31 @@
+import { redirect } from "next/navigation";
 import AppShell from "./components/layout/AppShell";
 import PipelineBoardWrapper from "./components/pipeline/PipelineBoardWrapper";
-import { supabase } from "@/lib/supabase";
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { Pipeline } from "./types/pipeline";
 
 export default async function Home() {
+  const supabase = await createSupabaseServerClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  // Get this user's pipeline
   const { data: pipeline } = await supabase
     .from("pipelines")
     .select("*")
+    .eq("user_id", user.id)
     .limit(1)
     .single();
 
+  // No pipeline yet → onboarding
+  if (!pipeline) redirect("/onboarding");
+
   const { data: stages } = await supabase
     .from("stages")
-    .select(`
-      *,
-      leads (*)
-    `)
+    .select(`*, leads (*)`)
     .eq("pipeline_id", pipeline.id)
+    .eq("user_id", user.id)
     .order("position", { ascending: true });
 
   const pipelineData: Pipeline = {
@@ -28,19 +37,7 @@ export default async function Home() {
       color: stage.color,
       leads: (stage.leads ?? [])
         .sort((a: { position: number }, b: { position: number }) => a.position - b.position)
-        .map((lead: {
-          id: string;
-          name: string;
-          value: number;
-          status: string;
-          email?: string;
-          phone?: string;
-          notes?: string;
-          avatar_url?: string;
-          profile_url?: string;
-          platform?: string;
-          follow_up_date?: string;
-        }) => ({
+        .map((lead: any) => ({
           id: lead.id,
           name: lead.name,
           value: lead.value,

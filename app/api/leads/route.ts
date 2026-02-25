@@ -1,42 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
-
-function isValidLead(data: unknown): boolean {
-  if (typeof data !== "object" || data === null) return false;
-  const d = data as Record<string, unknown>;
-  return typeof d.name === "string" && d.name.trim() !== "";
-}
+import { createSupabaseServerClient } from "@/lib/supabase-server";
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const supabase = await createSupabaseServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (!isValidLead(body)) {
-      return NextResponse.json(
-        { error: "Invalid lead data. Name is required." },
-        { status: 400 }
-      );
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { data: stage, error: stageError } = await supabase
+    const body = await req.json();
+    if (!body.name?.trim()) {
+      return NextResponse.json({ error: "Name is required." }, { status: 400 });
+    }
+
+    // Get user's first stage
+    const { data: stage } = await supabase
       .from("stages")
       .select("id")
+      .eq("user_id", user.id)
       .order("position", { ascending: true })
       .limit(1)
       .single();
 
-    if (stageError || !stage) {
-      return NextResponse.json(
-        { error: "No pipeline stages found. Please create a pipeline first." },
-        { status: 404 }
-      );
+    if (!stage) {
+      return NextResponse.json({ error: "No stages found." }, { status: 404 });
     }
 
     const { data: lead, error } = await supabase
       .from("leads")
       .insert({
         stage_id: stage.id,
-        name: (body.name as string).trim(),
+        user_id: user.id,
+        name: body.name.trim(),
         value: 0,
         status: "none",
         email: body.email ?? null,
@@ -49,26 +46,28 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ success: true, lead }, { status: 201 });
-
-  } catch {
-    return NextResponse.json(
-      { error: "Failed to parse request body." },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("Lead create error:", err);
+    return NextResponse.json({ error: "Server error." }, { status: 500 });
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ status: "ok", message: "Leads API is running" });
+  return NextResponse.json({ status: "ok" });
 }
 
 export async function PATCH(req: NextRequest) {
   try {
+    const supabase = await createSupabaseServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const body = await req.json();
     const { id, ...updates } = body;
 
@@ -89,8 +88,10 @@ export async function PATCH(req: NextRequest) {
         profile_url: updates.profileUrl,
         platform: updates.platform,
         follow_up_date: updates.followUpDate,
+        stage_id: updates.stageId,
       })
       .eq("id", id)
+      .eq("user_id", user.id)
       .select()
       .single();
 
@@ -99,16 +100,21 @@ export async function PATCH(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true, lead });
-  } catch {
-    return NextResponse.json(
-      { error: "Internal server error." },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("Lead update error:", err);
+    return NextResponse.json({ error: "Internal server error." }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
   try {
+    const supabase = await createSupabaseServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
 
@@ -116,17 +122,19 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: "Lead ID is required." }, { status: 400 });
     }
 
-    const { error } = await supabase.from("leads").delete().eq("id", id);
+    const { error } = await supabase
+      .from("leads")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true }, { status: 200 });
-  } catch {
-    return NextResponse.json(
-      { error: "Internal server error." },
-      { status: 500 }
-    );
+  } catch (err) {
+    console.error("Lead delete error:", err);
+    return NextResponse.json({ error: "Internal server error." }, { status: 500 });
   }
 }

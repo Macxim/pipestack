@@ -8,6 +8,7 @@ type Props = {
 };
 
 export default function Topbar({ initialTitle, pipelineId }: Props) {
+
   const [title, setTitle] = useState(initialTitle);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -48,6 +49,8 @@ export default function Topbar({ initialTitle, pipelineId }: Props) {
       setIsEditing(false);
     }
   };
+
+
 
   return (
     <header className="h-14 bg-white border-b border-gray-200 flex items-center px-6">
