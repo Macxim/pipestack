@@ -19,6 +19,26 @@ const DESIGN = {
 
 // ─── Boot ─────────────────────────────────────────────────────────
 
+function injectStyles() {
+  if (document.getElementById("pipestack-styles")) return;
+  const s = document.createElement("style");
+  s.id = "pipestack-styles";
+  s.textContent = `
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes slideIn { from { transform: translateX(100%); opacity:0; } to { transform: translateX(0); opacity:1; } }
+    @keyframes slideUp { from { transform: translateY(100%); opacity:0; } to { transform: translateY(0); opacity:1; } }
+    .pp-item:hover { background: rgba(0,0,0,0.03); }
+    .pp-btn-import { background: ${DESIGN.primary}; transition: ${DESIGN.transition}; }
+    .pp-btn-import:hover { background: ${DESIGN.primaryHover}; }
+    .pp-btn-import:active { transform: translateY(0); }
+    .pp-list::-webkit-scrollbar { width: 6px; }
+    .pp-list::-webkit-scrollbar-track { background: transparent; }
+    .pp-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
+  `;
+  document.head.appendChild(s);
+}
+injectStyles();
+
 const observer = new MutationObserver(() => {
   if (window.location.href !== currentUrl) {
     currentUrl = window.location.href;
@@ -223,41 +243,77 @@ function getPostRoot(bar) {
 }
 
 function openImportFlow(postRoot) {
-  // First, try to find and click the comments button to open the post modal
-  const opened = tryOpenPostComments(postRoot);
+  // If a dialog is already open (user manually opened it), scrape it directly
+  const existingDialog = getVisibleDialog();
+  if (existingDialog) {
+    waitForDialogToStabilize(existingDialog, () => {
+      expandComments(existingDialog);
+      setTimeout(() => {
+        const nodes = findCommentNodes(existingDialog);
+        const commenters = extractFromCommentNodes(nodes);
+        if (commenters.length === 0) {
+          showToast("No commenters found. Try scrolling inside the post first.", true);
+          importPanelOpen = false;
+          return;
+        }
+        showPanel(commenters, existingDialog);
+      }, 800);
+    });
+    return;
+  }
 
+  // No dialog open — always try to open the modal to get ALL comments
+  // (inline comments on the feed are never complete)
+  const opened = tryOpenPostComments(postRoot);
   if (opened) {
-    // Wait for the modal to open and comments to fully render
     waitForModalAndScrape();
   } else {
-    // Already in a modal or single post page — scrape directly
-    expandComments(postRoot);
-    setTimeout(() => {
-      const commenters = scrapeCommenters(postRoot);
-      if (commenters.length === 0) {
-        showToast("No commenters found. Try scrolling to load comments first.", true);
+    // Modal couldn't be opened — last resort: scrape whatever is inline
+    const inlineNodes = findCommentNodes(postRoot);
+    if (inlineNodes.length > 0) {
+      const commenters = extractFromCommentNodes(inlineNodes);
+      if (commenters.length > 0) {
+        showPanel(commenters, postRoot);
         return;
       }
-      showPanel(commenters);
-    }, 1500);
+    }
+    showToast("Couldn't load comments. Try clicking the post to open it first.", true);
+    importPanelOpen = false;
   }
 }
 
 function tryOpenPostComments(postRoot) {
-  // Look for the "X comments" button/link near this post
   const candidates = Array.from(postRoot.querySelectorAll("[role='button'], a, span"));
 
-  const commentsBtn = candidates.find((el) => {
-    const text = el.textContent?.trim() ?? "";
-    return (
-      text.match(/^\d+\s+comments?$/i) ||
-      text.match(/^\d+K?\s+comments?$/i) ||
-      el.getAttribute("aria-label")?.match(/\d+\s+comments?/i)
-    );
-  });
+  const COMMENT_REGEX = /^\d+[KkM]?\s+comments?$/i;
+  // Prefer role='button' element over plain spans
+  const commentsBtn =
+    // First try: div/element with role='button' containing comment count
+    candidates.find((el) => {
+      return (
+        el.getAttribute("role") === "button" &&
+        COMMENT_REGEX.test(el.textContent?.trim() ?? "")
+      );
+    }) ||
+    // Fallback: any element with matching text
+    candidates.find((el) => {
+      return (
+        COMMENT_REGEX.test(el.textContent?.trim() ?? "") ||
+        COMMENT_REGEX.test(el.getAttribute("aria-label") ?? "")
+      );
+    });
+
+  console.log("[PS] clicking:", commentsBtn?.tagName, commentsBtn?.getAttribute("role"), commentsBtn?.textContent?.trim());
 
   if (commentsBtn) {
-    commentsBtn.click();
+    commentsBtn.focus();
+    ["pointerdown", "mousedown", "pointerup", "mouseup", "click"].forEach((type) => {
+      commentsBtn.dispatchEvent(new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        view: window,
+      }));
+    });
     return true;
   }
 
@@ -265,37 +321,48 @@ function tryOpenPostComments(postRoot) {
 }
 
 function waitForModalAndScrape() {
-  const maxWait = 8000;
+  const maxWait = 15000;
   const interval = 500;
   let elapsed = 0;
 
-  showToast("Opening post & loading comments...", false);
+  showToast("Opening post...", false);
 
   const timer = setInterval(() => {
     elapsed += interval;
 
-    // Check if a dialog/modal has opened
-    const dialog = document.querySelector("[role='dialog']");
+    const dialog = getVisibleDialog();
 
     if (dialog) {
       clearInterval(timer);
       document.getElementById("pipeline-toast")?.remove();
 
-      // Expand "view more comments" links first
-      expandComments(dialog);
+      // Show loading panel immediately so user knows it's working
+      showLoadingPanel();
 
-      // Auto-scroll inside the modal to lazy-load more comments
-      autoScrollModal(dialog, () => {
-        const nodes = findCommentNodes(dialog);
-        const commenters = extractFromCommentNodes(nodes);
+      // Give the dialog extra time to settle before we even start watching it
+      setTimeout(() => {
+        waitForDialogToStabilize(dialog, () => {
+          expandComments(dialog);
 
-        if (commenters.length === 0) {
-          showToast("No commenters found. Try scrolling inside the post first.", true);
-          return;
-        }
+          // After expanding, wait again for new comments to render
+          setTimeout(() => {
+            autoScrollModal(dialog, () => {
+              const nodes = findCommentNodes(dialog);
+              const commenters = extractFromCommentNodes(nodes);
 
-        showPanel(commenters, dialog);
-      });
+              if (commenters.length === 0) {
+                updateLoadingPanel("No commenters found. Try hitting refresh ↻", true);
+                return;
+              }
+
+              // Replace loading panel with real results
+              document.getElementById("pipeline-panel")?.remove();
+              importPanelOpen = false;
+              showPanel(commenters, dialog);
+            });
+          }, 2000); // wait after expand before scrolling
+        });
+      }, 2000); // initial settle time after dialog appears
 
       return;
     }
@@ -304,9 +371,141 @@ function waitForModalAndScrape() {
       clearInterval(timer);
       document.getElementById("pipeline-toast")?.remove();
       showToast("Couldn't open post. Try clicking the post manually first.", true);
+      importPanelOpen = false;
     }
   }, interval);
 }
+
+function waitForDialogToStabilize(dialog, callback) {
+  const checkInterval = 600;
+  const requiredStableChecks = 4;
+  const maxChecks = 30; // 18 seconds max
+  let lastCount = -1;
+  let stableChecks = 0;
+  let totalChecks = 0;
+
+  updateLoadingPanel("Waiting for comments to load...");
+
+  const checker = setInterval(() => {
+    totalChecks++;
+    const currentCount = dialog.querySelectorAll("[role='article']").length;
+
+    updateLoadingPanel(`Loading comments... (${currentCount} found so far)`);
+
+    // Only start counting stable checks once we have at least 1 article
+    if (currentCount > 0 && currentCount === lastCount) {
+      stableChecks++;
+    } else {
+      stableChecks = 0; // reset if count changed OR still zero
+    }
+
+    lastCount = currentCount;
+
+    const isStable = stableChecks >= requiredStableChecks;
+    const timedOut = totalChecks >= maxChecks;
+
+    if (isStable || (timedOut && currentCount > 0)) {
+      // Only proceed if we actually have something
+      clearInterval(checker);
+      updateLoadingPanel("Expanding & scrolling through comments...");
+      callback();
+    } else if (timedOut && currentCount === 0) {
+      // Gave up with nothing — tell the user
+      clearInterval(checker);
+      updateLoadingPanel("No comments loaded. Try opening the post manually first.", true);
+    }
+  }, checkInterval);
+}
+
+function showLoadingPanel() {
+  importPanelOpen = true;
+  document.getElementById("pipeline-panel")?.remove();
+
+  const panel = document.createElement("div");
+  panel.id = "pipeline-panel";
+  panel.style.cssText = `
+    position:fixed; top:12px; right:12px; width:400px; height:calc(100vh - 24px);
+    background:${DESIGN.glass}; z-index:2147483647;
+    border-radius:20px; border:1px solid ${DESIGN.border};
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    font-family:${DESIGN.font};
+    animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  `;
+
+  panel.innerHTML = `
+    <div style="text-align:center; padding:40px;">
+      <div id="pp-loading-spinner" style="
+        width:48px; height:48px; border:3px solid #e2e8f0;
+        border-top:3px solid ${DESIGN.primary};
+        border-radius:50%; margin:0 auto 24px;
+        animation: spin 0.8s linear infinite;
+      "></div>
+      <div style="font-size:18px; font-weight:800; color:#1e293b; margin-bottom:8px;">Import Leads</div>
+      <div id="pp-loading-status" style="font-size:13px; color:#64748b; font-weight:500; line-height:1.5;">
+        Opening post...
+      </div>
+      <button id="pp-loading-close" style="
+        margin-top:32px; padding:8px 20px; background:#f1f5f9;
+        border:none; border-radius:10px; font-size:13px;
+        color:#64748b; cursor:pointer; font-weight:600;
+      ">Cancel</button>
+    </div>
+  `;
+
+  document.body.appendChild(panel);
+
+  document.getElementById("pp-loading-close").addEventListener("click", () => {
+    panel.remove();
+    importPanelOpen = false;
+  });
+}
+
+function updateLoadingPanel(message, isError = false) {
+  const statusEl = document.getElementById("pp-loading-status");
+  const spinner = document.getElementById("pp-loading-spinner");
+  if (!statusEl) return;
+
+  statusEl.textContent = message;
+
+  if (isError) {
+    statusEl.style.color = "#ef4444";
+    if (spinner) {
+      spinner.style.borderTopColor = "#ef4444";
+      spinner.style.animation = "none";
+    }
+  }
+}
+
+function getVisibleDialog() {
+  const dialogs = Array.from(document.querySelectorAll("[role='dialog']"));
+
+  let best = null;
+  let bestArea = 0;
+
+  dialogs.forEach(d => {
+    const rect = d.getBoundingClientRect();
+    const area = rect.width * rect.height;
+
+    // Must be meaningfully sized
+    if (area <= 10000) return;
+
+    // Must have actual text content — skip skeleton/loading dialogs
+    const text = d.innerText?.trim() ?? "";
+    if (text.length < 20) return;
+
+    // Prefer dialogs with articles already in them
+    const articles = d.querySelectorAll("[role='article']").length;
+    const score = area + articles * 50000; // weight toward dialogs with content
+
+    if (score > bestArea) {
+      bestArea = score;
+      best = d;
+    }
+  });
+
+  return best;
+}
+
 
 function autoScrollModal(dialog, callback) {
   // Find the scrollable container inside the modal
@@ -357,8 +556,17 @@ function autoScrollModal(dialog, callback) {
 }
 
 function expandComments(root) {
+  // Only click elements that are INSIDE root and won't open a new modal
+  // Exclude anything that might trigger a dialog open
   const buttons = Array.from(root.querySelectorAll("[role='button'], span, div"));
   buttons.forEach((el) => {
+    // Skip if this element is outside our root (safety check)
+    if (!root.contains(el)) return;
+
+    // Skip if clicking this would likely open a new dialog
+    // (these are typically anchor tags or elements with href)
+    if (el.tagName === "A" && el.href) return;
+
     const text = el.textContent?.trim() ?? "";
     if (
       text.match(/^View \d+ more comments?/) ||
@@ -374,26 +582,12 @@ function expandComments(root) {
 // ─── Core scraper ─────────────────────────────────────────────────
 
 function scrapeCommenters(postRoot) {
-  // Try multiple dialog/modal selectors — Facebook uses different ones
-  const dialogSelectors = [
-    "[role='dialog'][aria-modal='true']",
-    "[role='dialog']",
-    "div[aria-label$='Post']",
-    "div[aria-label$=\"'s Post\"]",
-  ];
-
-  for (const sel of dialogSelectors) {
-    const dialog = document.querySelector(sel);
-    if (dialog) {
-      const nodes = findCommentNodes(dialog);
-      if (nodes.length > 0) {
-        console.log("[Pipeline] using dialog:", sel, "nodes:", nodes.length);
-        return extractFromCommentNodes(nodes);
-      }
-    }
+  const dialog = getVisibleDialog();
+  if (dialog) {
+    const nodes = findCommentNodes(dialog);
+    if (nodes.length > 0) return extractFromCommentNodes(nodes);
   }
 
-  // Fallback to postRoot then document
   const nodes = findCommentNodes(postRoot);
   if (nodes.length > 0) return extractFromCommentNodes(nodes);
 
@@ -577,6 +771,29 @@ function getNameFromTitle() {
 
 // ─── Import panel ─────────────────────────────────────────────────
 
+function createCommenterHTML(c, index) {
+  const avatarHtml = c.avatarUrl
+    ? `<img src="${c.avatarUrl}" style="width:40px;height:40px;border-radius:12px;object-fit:cover;flex-shrink:0;" />`
+    : `<div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#64748b;">${c.name.charAt(0).toUpperCase()}</div>`;
+
+  return `
+    <label class="pp-item" style="
+      display:flex; align-items:center; gap:14px;
+      padding:12px; border-radius:14px; border:1px solid rgba(0,0,0,0.05);
+      cursor:pointer; background:rgba(255,255,255,0.5);
+      transition: ${DESIGN.transition};
+    ">
+      <input type="checkbox" class="pp-cb" data-index="${index}" checked
+        style="width:18px; height:18px; cursor:pointer; flex-shrink:0; accent-color:${DESIGN.primary}" />
+      ${avatarHtml}
+      <div style="min-width:0; flex:1;">
+        <div style="font-size:14px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</div>
+        <div style="font-size:11px;color:#94a3b8;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${c.profileUrl.replace("https://www.facebook.com/", "fb.com/")}</div>
+      </div>
+    </label>
+  `;
+}
+
 function showPanel(commenters, scrapeRoot = null) {
   importPanelOpen = true;
 
@@ -592,19 +809,6 @@ function showPanel(commenters, scrapeRoot = null) {
     overflow: hidden;
     animation: slideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   `;
-
-  const styleSheet = document.createElement("style");
-  styleSheet.textContent = `
-    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-    .pp-item:hover { background: rgba(0,0,0,0.03); }
-    .pp-btn-import { background: ${DESIGN.primary}; transition: ${DESIGN.transition}; }
-    .pp-btn-import:hover { background: ${DESIGN.primaryHover}; }
-    .pp-btn-import:active { transform: translateY(0); }
-    .pp-list::-webkit-scrollbar { width: 6px; }
-    .pp-list::-webkit-scrollbar-track { background: transparent; }
-    .pp-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
-  `;
-  document.head.appendChild(styleSheet);
 
   panel.innerHTML = `
     <div style="padding:24px; border-bottom:1px solid rgba(0,0,0,0.05); display:flex; justify-content:space-between; align-items:center; flex-shrink:0;">
@@ -635,25 +839,7 @@ function showPanel(commenters, scrapeRoot = null) {
     </div>
 
     <div id="pp-list" class="pp-list" style="flex:1; overflow-y:auto; padding:16px 24px; display:flex; flex-direction:column; gap:10px;">
-      ${commenters.map((c, i) => `
-        <label class="pp-item" style="
-          display:flex; align-items:center; gap:14px;
-          padding:12px; border-radius:14px; border:1px solid rgba(0,0,0,0.05);
-          cursor:pointer; background:rgba(255,255,255,0.5);
-          transition: ${DESIGN.transition};
-        ">
-          <input type="checkbox" class="pp-cb" data-index="${i}" checked
-            style="width:18px; height:18px; cursor:pointer; flex-shrink:0; accent-color:${DESIGN.primary}" />
-          ${c.avatarUrl
-      ? `<img src="${c.avatarUrl}" style="width:40px;height:40px;border-radius:12px;object-fit:cover;flex-shrink:0;" />`
-      : `<div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#64748b;">${c.name.charAt(0).toUpperCase()}</div>`
-    }
-          <div style="min-width:0; flex:1;">
-            <div style="font-size:14px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</div>
-            <div style="font-size:11px;color:#94a3b8;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${c.profileUrl.replace("https://www.facebook.com/", "fb.com/")}</div>
-          </div>
-        </label>
-      `).join("")}
+      ${commenters.map((c, i) => createCommenterHTML(c, i)).join("")}
     </div>
 
     <div style="padding:24px; background:white; border-top:1px solid rgba(0,0,0,0.05); flex-shrink:0;">
@@ -679,14 +865,6 @@ function showPanel(commenters, scrapeRoot = null) {
     refreshBtn.style.animation = "spin 0.6s ease";
     refreshBtn.disabled = true;
 
-    // Add spin animation if not already present
-    if (!document.getElementById("pp-spin-style")) {
-      const s = document.createElement("style");
-      s.id = "pp-spin-style";
-      s.textContent = `@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`;
-      document.head.appendChild(s);
-    }
-
     // Determine where to scrape from
     const root = scrapeRoot || document.querySelector("[role='dialog']") || document.body;
 
@@ -707,27 +885,10 @@ function showPanel(commenters, scrapeRoot = null) {
         const listEl = document.getElementById("pp-list");
         added.forEach((c, offset) => {
           const i = commenters.length - added.length + offset;
-          const item = document.createElement("label");
-          item.className = "pp-item";
-          item.style.cssText = `
-            display:flex; align-items:center; gap:14px;
-            padding:12px; border-radius:14px; border:1px solid rgba(0,0,0,0.05);
-            cursor:pointer; background:rgba(255,255,255,0.5);
-            transition: ${DESIGN.transition};
-          `;
-          item.innerHTML = `
-            <input type="checkbox" class="pp-cb" data-index="${i}" checked
-              style="width:18px; height:18px; cursor:pointer; flex-shrink:0; accent-color:${DESIGN.primary}" />
-            ${c.avatarUrl
-              ? `<img src="${c.avatarUrl}" style="width:40px;height:40px;border-radius:12px;object-fit:cover;flex-shrink:0;" />`
-              : `<div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#64748b;">${c.name.charAt(0).toUpperCase()}</div>`
-            }
-            <div style="min-width:0; flex:1;">
-              <div style="font-size:14px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</div>
-              <div style="font-size:11px;color:#94a3b8;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${c.profileUrl.replace("https://www.facebook.com/", "fb.com/")}</div>
-            </div>
-          `;
-          listEl.appendChild(item);
+          const div = document.createElement("div");
+          div.innerHTML = createCommenterHTML(c, i).trim();
+          // The first child is the label element
+          listEl.appendChild(div.firstElementChild);
         });
 
         document.getElementById("pp-subtitle").textContent = `${commenters.length} people identified (+${added.length} new)`;
@@ -823,13 +984,6 @@ function showToast(message, isError = false) {
     border: 1px solid rgba(255,255,255,0.1);
     animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   `;
-
-  if (!document.getElementById("pipeline-toast-style")) {
-    const s = document.createElement("style");
-    s.id = "pipeline-toast-style";
-    s.textContent = `@keyframes slideUp { from { transform: translateY(100%); opacity:0; } to { transform: translateY(0); opacity:1; } }`;
-    document.head.appendChild(s);
-  }
 
   document.body.appendChild(t);
   setTimeout(() => {
