@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getUserFromRequest } from "@/lib/get-user-from-request";
+import { uploadAvatarToSupabase } from "@/lib/upload-avatar";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -31,6 +32,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No stages found." }, { status: 404 });
     }
 
+    let finalAvatarUrl = body.avatarUrl ?? null;
+    const isFacebookOrInstagramUrl = (url: string) => 
+      url.includes("fbcdn.net") || 
+      url.includes("fbsbx.com") || 
+      url.includes("cdninstagram.com");
+
+    if (finalAvatarUrl && isFacebookOrInstagramUrl(finalAvatarUrl)) {
+      finalAvatarUrl = await uploadAvatarToSupabase(finalAvatarUrl, "lead");
+    }
+
     const { data: lead, error } = await supabaseAdmin
       .from("leads")
       .insert({
@@ -42,7 +53,7 @@ export async function POST(req: NextRequest) {
         email: body.email ?? null,
         phone: body.phone ?? null,
         notes: body.notes ?? null,
-        avatar_url: body.avatarUrl ?? null,
+        avatar_url: finalAvatarUrl,
         profile_url: body.profileUrl ?? null,
         platform: body.platform ?? null,
       })
@@ -75,6 +86,17 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "Lead ID is required." }, { status: 400 });
     }
 
+    let finalAvatarUrl = updates.avatarUrl;
+    const isFacebookOrInstagramUrl = (url: string) => 
+      url.includes("fbcdn.net") || 
+      url.includes("fbsbx.com") || 
+      url.includes("cdninstagram.com");
+
+    if (finalAvatarUrl && isFacebookOrInstagramUrl(finalAvatarUrl)) {
+      const uploadedUrl = await uploadAvatarToSupabase(finalAvatarUrl, "lead");
+      if (uploadedUrl) finalAvatarUrl = uploadedUrl;
+    }
+
     const { data: lead, error } = await supabaseAdmin
       .from("leads")
       .update({
@@ -84,7 +106,7 @@ export async function PATCH(req: NextRequest) {
         email: updates.email,
         phone: updates.phone,
         notes: updates.notes,
-        avatar_url: updates.avatarUrl,
+        avatar_url: finalAvatarUrl,
         profile_url: updates.profileUrl,
         platform: updates.platform,
         follow_up_date: updates.followUpDate,

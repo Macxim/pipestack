@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getUserFromRequest } from "@/lib/get-user-from-request";
+import { uploadAvatarToSupabase } from "@/lib/upload-avatar";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -35,15 +36,26 @@ export async function POST(req: NextRequest) {
       targetStageId = stage.id;
     }
 
-    const rows = leads.map((lead: any) => ({
-      stage_id: targetStageId,
-      user_id: userId,
-      name: lead.name.trim(),
-      value: 0,
-      status: "none",
-      profile_url: lead.profileUrl ?? null,
-      platform: lead.platform ?? null,
-      avatar_url: lead.avatarUrl ?? null,
+    const rows = await Promise.all(leads.map(async (lead: any) => {
+      let finalAvatarUrl = lead.avatarUrl ?? null;
+      const isFacebookOrInstagramUrl = (url: string) => 
+        url.includes("fbcdn.net") || 
+        url.includes("fbsbx.com") || 
+        url.includes("cdninstagram.com");
+
+      if (finalAvatarUrl && isFacebookOrInstagramUrl(finalAvatarUrl)) {
+        finalAvatarUrl = await uploadAvatarToSupabase(finalAvatarUrl, "lead") || finalAvatarUrl;
+      }
+      return {
+        stage_id: targetStageId,
+        user_id: userId,
+        name: lead.name.trim(),
+        value: 0,
+        status: "none",
+        profile_url: lead.profileUrl ?? null,
+        platform: lead.platform ?? null,
+        avatar_url: finalAvatarUrl,
+      };
     }));
 
     const { data, error } = await supabaseAdmin.from("leads").insert(rows).select();

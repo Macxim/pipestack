@@ -110,12 +110,14 @@ function injectProfileButton() {
 
   const btn = makeFloatingButton("＋ Add to Pipestack", DESIGN.primary);
   btn.addEventListener("click", () => {
+    const avatarUrl = getProfileAvatar();
     safeSendMessage(
       {
         type: "SEND_LEAD",
         payload: {
           name,
           profileUrl: cleanProfileUrl(window.location.href),
+          avatarUrl,
           platform: window.location.href.includes("instagram") ? "instagram" : "facebook",
         },
       },
@@ -127,6 +129,27 @@ function injectProfileButton() {
   });
 
   document.body.appendChild(btn);
+}
+
+function getProfileAvatar() {
+  // 1. Precise Facebook Profile Pic
+  const fbBigPic = document.querySelector('img[src*="fbcdn.net"][alt*="profile"], img[src*="scontent"][alt*="profile"], svg foreignObject img[src*="fbcdn"]');
+  if (fbBigPic && fbBigPic.src) return fbBigPic.src;
+
+  // 2. SVG-based Facebook pics
+  const fbSvgPic = document.querySelector('image[xlink:href*="fbcdn.net"], image[*|href*="fbcdn.net"]');
+  if (fbSvgPic) {
+    const href = fbSvgPic.getAttribute('xlink:href') || fbSvgPic.getAttribute('href');
+    if (href) return href;
+  }
+
+  // 3. Instagram Profile
+  const igPic = document.querySelector('header img[src*="cdninstagram"], img[alt*="profile picture"]');
+  if (igPic && igPic.src) return igPic.src;
+
+  // 4. Fallback search for any CDN image
+  const fallback = document.querySelector('img[src*="fbcdn.net"], img[src*="scontent.f"], img[src*="cdninstagram"]');
+  return fallback ? fallback.src : null;
 }
 
 function makeFloatingButton(label, color) {
