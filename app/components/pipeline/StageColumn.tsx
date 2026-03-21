@@ -92,7 +92,7 @@ export default function StageColumn({ stage, onCardClick, onDelete, onRename, on
           </button>
         </div>
         <div className="flex items-center gap-3 pl-4">
-          <span className="text-xs text-gray-400">{stage.leads.length} leads</span>
+          <span className="text-xs text-gray-400">{stage.leads.length} {stage.leads.length === 1 || stage.leads.length === 0 ? "lead" : "leads"}</span>
           {totalValue(stage) > 0 && (
             <span className="text-xs text-gray-400">
               ${totalValue(stage).toLocaleString()}
@@ -112,14 +112,29 @@ export default function StageColumn({ stage, onCardClick, onDelete, onRename, on
           items={stage.leads.map((l) => l.id)}
           strategy={verticalListSortingStrategy}
         >
-          {stage.leads.map((lead) => (
-            <SortableLeadCard
-              key={lead.id}
-              lead={lead}
-              onClick={() => onCardClick(lead)}
-              onDelete={() => onLeadDelete(lead.id)}
-            />
-          ))}
+          {stage.leads.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+              <div className="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center mb-3">
+                <span className="text-gray-300 text-md font-bold">+</span>
+              </div>
+              <p className="text-xs text-gray-400 font-medium">No leads yet.<br/>Drop a lead here or </p>
+              <a
+                href="/leads/new"
+                className="text-xs text-blue-500 font-medium hover:underline"
+              >
+                add one manually.
+              </a>
+            </div>
+          ) : (
+            stage.leads.map((lead) => (
+              <SortableLeadCard
+                key={lead.id}
+                lead={lead}
+                onClick={() => onCardClick(lead)}
+                onDelete={() => onLeadDelete(lead.id)}
+              />
+            ))
+          )}
         </SortableContext>
       </div>
     </div>

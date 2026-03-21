@@ -20,16 +20,35 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Name is required." }, { status: 400 });
     }
 
-    const { data: stage } = await supabaseAdmin
+    let targetStageId = body.stageId ?? null;
+
+    // If no stageId provided (e.g. from extension), fall back to first stage
+    if (!targetStageId) {
+      const { data: stage } = await supabaseAdmin
+        .from("stages")
+        .select("id")
+        .eq("user_id", userId)
+        .order("position", { ascending: true })
+        .limit(1)
+        .single();
+
+      if (!stage) {
+        return NextResponse.json({ error: "No stages found." }, { status: 404 });
+      }
+
+      targetStageId = stage.id;
+    }
+
+    // Verify the stage belongs to this user (security check)
+    const { data: stageCheck } = await supabaseAdmin
       .from("stages")
       .select("id")
+      .eq("id", targetStageId)
       .eq("user_id", userId)
-      .order("position", { ascending: true })
-      .limit(1)
       .single();
 
-    if (!stage) {
-      return NextResponse.json({ error: "No stages found." }, { status: 404 });
+    if (!stageCheck) {
+      return NextResponse.json({ error: "Invalid stage." }, { status: 403 });
     }
 
     // ── Duplicate check ───────────────────────────────────────────────
@@ -55,6 +74,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Get the next position in this stage
+    const { data: lastLead } = await supabaseAdmin
+      .from("leads")
+      .select("position")
+      .eq("stage_id", targetStageId)
+      .order("position", { ascending: false })
+      .limit(1)
+      .single();
+
+    const nextPosition = lastLead ? (lastLead.position ?? 0) + 1 : 0;
+
     let finalAvatarUrl = body.avatarUrl ?? null;
     const isFacebookOrInstagramUrl = (url: string) => 
       url.includes("fbcdn.net") || 
@@ -68,7 +98,7 @@ export async function POST(req: NextRequest) {
     const { data: lead, error } = await supabaseAdmin
       .from("leads")
       .insert({
-        stage_id: stage.id,
+        stage_id: targetStageId,
         user_id: userId,
         name: body.name.trim(),
         value: 0,
@@ -78,6 +108,8 @@ export async function POST(req: NextRequest) {
         avatar_url: finalAvatarUrl,
         profile_url: body.profileUrl ?? null,
         platform: body.platform ?? null,
+        follow_up_date: body.followUpDate ?? null,
+        position: nextPosition,
       })
       .select()
       .single();
@@ -85,7 +117,8 @@ export async function POST(req: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ success: true, lead }, { status: 201 });
-  } catch {
+  } catch (error) {
+    console.error("POST /api/leads error:", error);
     return NextResponse.json({ error: "Server error." }, { status: 500 });
   }
 }

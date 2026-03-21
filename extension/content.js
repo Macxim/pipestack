@@ -1055,7 +1055,7 @@ function showPanel(commenters, scrapeRoot = null) {
           const skippedCount = response.result.skipped ?? 0;
           const importedCount = response.result.count ?? 0;
           importBtn.style.background = "#10b981";
-          importBtn.textContent = `✓ ${importedCount} leads imported!`;
+          importBtn.textContent = `✓ ${importedCount} lead${importedCount === 1 ? "" : "s"} imported!`;
           statusEl.textContent = skippedCount > 0
             ? `Added to your pipeline. ${skippedCount} duplicate${skippedCount > 1 ? "s" : ""} skipped.`
             : "Added to your pipeline.";
