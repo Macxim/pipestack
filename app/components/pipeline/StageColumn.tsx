@@ -105,7 +105,7 @@ export default function StageColumn({ stage, onCardClick, onDelete, onRename, on
       <div
         ref={setNodeRef}
         className={`flex flex-col gap-2 min-h-32 rounded-xl p-2 transition-colors ${
-          isOver ? "bg-blue-50 ring-2 ring-blue-200" : "bg-gray-100"
+          isOver ? "bg-blue-50 ring-2 ring-blue-200" : "bg-gray-100 ring-1 ring-gray-200/70"
         }`}
       >
         <SortableContext

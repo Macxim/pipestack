@@ -52,9 +52,13 @@ export async function POST(req: NextRequest) {
         name: lead.name.trim(),
         value: 0,
         email: lead.email ?? null,
+        phone: lead.phone ?? null,
         profile_url: lead.profileUrl ?? null,
         platform: lead.platform ?? null,
         avatar_url: finalAvatarUrl,
+        notes: lead.notes ?? null,
+        follow_up_date: lead.followUpDate ?? null,
+        position: 0,
       };
     }));
 
