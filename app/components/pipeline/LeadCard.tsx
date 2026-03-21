@@ -114,7 +114,7 @@ export default function LeadCard({ lead, onClick, onDelete }: Props) {
                 {followUp.state === "today" && "🔔"}
                 {(followUp.state === "tomorrow" || followUp.state === "soon") && "📅"}
                 {followUp.state === "future" && "📅"}
-                <span className="ml-1">{followUp.label}</span>
+                <span className="ml-0.5">{followUp.label}</span>
               </span>
             </div>
           )}
