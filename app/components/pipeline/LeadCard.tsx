@@ -1,18 +1,5 @@
 import { Lead } from "@/app/types/pipeline";
-
-const statusStyles: Record<string, string> = {
-  overdue: "bg-red-500 text-white",
-  today: "bg-green-400 text-white",
-  upcoming: "bg-yellow-400 text-white",
-  none: "",
-};
-
-const statusLabel: Record<string, string> = {
-  overdue: "Overdue",
-  today: "Today",
-  upcoming: "Upcoming",
-  none: "",
-};
+import { getFollowUpStatus } from "@/lib/follow-up-status";
 
 type Props = {
   lead: Lead;
@@ -28,10 +15,17 @@ export default function LeadCard({ lead, onClick, onDelete }: Props) {
     .toUpperCase()
     .slice(0, 2);
 
+  const followUp = getFollowUpStatus(lead.followUpDate);
+
   return (
     <div
       onClick={onClick}
       className="group relative bg-white rounded-lg border border-gray-200 p-3 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-300 transition-all"
+      style={{
+        borderLeft: followUp.state !== "none" && (followUp.state === "overdue" || followUp.state === "today")
+          ? `3px solid ${followUp.border}`
+          : undefined,
+      }}
     >
       <div className="flex items-start gap-3">
         {/* Avatar Section */}
@@ -105,14 +99,25 @@ export default function LeadCard({ lead, onClick, onDelete }: Props) {
           )}
 
           <div className="flex items-center justify-between mt-1">
-            {lead.status !== "none" && (
-              <span
-                className={`text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded ${statusStyles[lead.status]}`}
-              >
-                {statusLabel[lead.status]}
-              </span>
-            )}
           </div>
+
+          {followUp.state !== "none" && (
+            <div className="mt-2">
+              <span
+                className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                style={{
+                  color: followUp.color,
+                  background: `${followUp.color}15`,
+                }}
+              >
+                {followUp.state === "overdue" && "⏰"}
+                {followUp.state === "today" && "🔔"}
+                {(followUp.state === "tomorrow" || followUp.state === "soon") && "📅"}
+                {followUp.state === "future" && "📅"}
+                <span className="ml-1">{followUp.label}</span>
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>

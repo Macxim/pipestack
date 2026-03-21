@@ -41,7 +41,6 @@ export default async function Home() {
           id: lead.id,
           name: lead.name,
           value: lead.value,
-          status: lead.status,
           email: lead.email,
           phone: lead.phone,
           notes: lead.notes,

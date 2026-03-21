@@ -72,7 +72,6 @@ export async function POST(req: NextRequest) {
         user_id: userId,
         name: body.name.trim(),
         value: 0,
-        status: "none",
         email: body.email ?? null,
         phone: body.phone ?? null,
         notes: body.notes ?? null,
@@ -125,7 +124,6 @@ export async function PATCH(req: NextRequest) {
       .update({
         name: updates.name,
         value: updates.value,
-        status: updates.status,
         email: updates.email,
         phone: updates.phone,
         notes: updates.notes,

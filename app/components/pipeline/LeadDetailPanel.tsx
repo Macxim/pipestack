@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Lead, LeadStatus } from "@/app/types/pipeline";
+import { Lead } from "@/app/types/pipeline";
+import { getFollowUpStatus } from "@/lib/follow-up-status";
 
 type Props = {
   lead: Lead;
@@ -10,15 +11,9 @@ type Props = {
   onSave: (updated: Lead) => void;
 };
 
-const statusOptions: { value: LeadStatus; label: string; color: string }[] = [
-  { value: "none", label: "No status", color: "bg-gray-200 text-gray-600" },
-  { value: "upcoming", label: "Upcoming", color: "bg-yellow-400 text-white" },
-  { value: "today", label: "Today", color: "bg-green-400 text-white" },
-  { value: "overdue", label: "Overdue", color: "bg-red-500 text-white" },
-];
-
 export default function LeadDetailPanel({ lead, stageName, onClose, onSave }: Props) {
   const [form, setForm] = useState<Lead>(lead);
+  const followUp = getFollowUpStatus(form.followUpDate);
 
   const update = (field: keyof Lead, value: string | number) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -32,7 +27,6 @@ export default function LeadDetailPanel({ lead, stageName, onClose, onSave }: Pr
         body: JSON.stringify({
           name: form.name,
           value: form.value,
-          status: form.status,
           email: form.email,
           phone: form.phone,
           notes: form.notes,
@@ -134,27 +128,6 @@ export default function LeadDetailPanel({ lead, stageName, onClose, onSave }: Pr
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
-          {/* Status */}
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">
-              Status
-            </label>
-            <div className="flex gap-2 flex-wrap">
-              {statusOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => update("status", opt.value)}
-                  className={`text-xs font-medium px-3 py-1.5 rounded-full transition-all border-2 ${
-                    form.status === opt.value
-                      ? `${opt.color} border-transparent`
-                      : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* Follow-up date */}
           <div>
@@ -167,6 +140,11 @@ export default function LeadDetailPanel({ lead, stageName, onClose, onSave }: Pr
               onChange={(e) => update("followUpDate", e.target.value)}
               className="w-full px-3 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            {followUp.state !== "none" && (
+              <p className="text-xs font-semibold mt-1" style={{ color: followUp.color }}>
+                {followUp.label}
+              </p>
+            )}
           </div>
 
           {/* Notes */}

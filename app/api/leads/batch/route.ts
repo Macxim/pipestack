@@ -51,7 +51,6 @@ export async function POST(req: NextRequest) {
         user_id: userId,
         name: lead.name.trim(),
         value: 0,
-        status: "none",
         email: lead.email ?? null,
         profile_url: lead.profileUrl ?? null,
         platform: lead.platform ?? null,
