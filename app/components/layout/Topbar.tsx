@@ -5,9 +5,10 @@ import { useState, useEffect } from "react";
 type Props = {
   initialTitle: string;
   pipelineId: string;
+  isEditable?: boolean;
 };
 
-export default function Topbar({ initialTitle, pipelineId }: Props) {
+export default function Topbar({ initialTitle, pipelineId, isEditable = true }: Props) {
 
   const [title, setTitle] = useState(initialTitle);
   const [isEditing, setIsEditing] = useState(false);
@@ -67,8 +68,12 @@ export default function Topbar({ initialTitle, pipelineId }: Props) {
         />
       ) : (
         <span
-          onClick={() => setIsEditing(true)}
-          className="text-sm font-medium text-gray-500 hover:text-gray-900 cursor-pointer transition-colors"
+          onClick={() => isEditable && setIsEditing(true)}
+          className={`text-sm font-medium transition-colors ${
+            isEditable 
+              ? "text-gray-500 hover:text-gray-900 cursor-pointer" 
+              : "text-gray-900 cursor-default"
+          }`}
         >
           {title}
         </span>

@@ -27,7 +27,7 @@ export default async function AddLeadPage() {
     .order("position", { ascending: true });
 
   return (
-    <AppShell title={pipeline.title || "Add Lead"} pipelineId={pipeline.id}>
+    <AppShell title="Add a Lead" pipelineId={pipeline.id} isEditable={false}>
       <AddLeadForm stages={stages ?? []} />
     </AppShell>
   );

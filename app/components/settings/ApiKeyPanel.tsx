@@ -33,7 +33,7 @@ export default function ApiKeyPanel() {
   if (loading) return <div className="text-sm text-gray-400">Loading...</div>;
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-5 max-w-lg">
+    <div className="bg-white border border-gray-200 rounded-xl p-5">
       <h3 className="text-sm font-semibold text-gray-900 mb-1">Extension API Key</h3>
       <p className="text-xs text-gray-500 mb-4">
         Paste this key into your Chrome extension to connect it to your account.
