@@ -32,6 +32,29 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No stages found." }, { status: 404 });
     }
 
+    // ── Duplicate check ───────────────────────────────────────────────
+    const profileUrl = body.profileUrl ?? null;
+    const email = body.email ?? null;
+
+    if (profileUrl || email) {
+      const query = supabaseAdmin
+        .from("leads")
+        .select("id")
+        .eq("user_id", userId);
+
+      if (profileUrl) query.eq("profile_url", profileUrl);
+      else if (email) query.ilike("email", email);
+
+      const { data: existing } = await query.limit(1).single();
+
+      if (existing) {
+        return NextResponse.json(
+          { success: false, skipped: true, message: "Lead already exists in your pipeline." },
+          { status: 200 }
+        );
+      }
+    }
+
     let finalAvatarUrl = body.avatarUrl ?? null;
     const isFacebookOrInstagramUrl = (url: string) => 
       url.includes("fbcdn.net") || 

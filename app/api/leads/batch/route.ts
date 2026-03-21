@@ -52,17 +52,48 @@ export async function POST(req: NextRequest) {
         name: lead.name.trim(),
         value: 0,
         status: "none",
+        email: lead.email ?? null,
         profile_url: lead.profileUrl ?? null,
         platform: lead.platform ?? null,
         avatar_url: finalAvatarUrl,
       };
     }));
 
-    const { data, error } = await supabaseAdmin.from("leads").insert(rows).select();
+    // ── Duplicate filtering ──────────────────────────────────────────
+    const { data: existing } = await supabaseAdmin
+      .from("leads")
+      .select("profile_url, email")
+      .eq("user_id", userId);
+
+    const existingUrls = new Set(
+      existing?.map((l) => l.profile_url).filter(Boolean) ?? []
+    );
+    const existingEmails = new Set(
+      existing?.map((l) => l.email?.toLowerCase()).filter(Boolean) ?? []
+    );
+
+    const filtered = rows.filter((lead) => {
+      if (lead.profile_url && existingUrls.has(lead.profile_url)) return false;
+      if (lead.email && existingEmails.has(lead.email?.toLowerCase())) return false;
+      return true;
+    });
+
+    const skipped = rows.length - filtered.length;
+
+    if (filtered.length === 0) {
+      return NextResponse.json({
+        success: true,
+        count: 0,
+        skipped,
+        message: "All leads already exist in your pipeline.",
+      });
+    }
+
+    const { data, error } = await supabaseAdmin.from("leads").insert(filtered).select();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-    return NextResponse.json({ success: true, count: data.length, leads: data }, { status: 201 });
+    return NextResponse.json({ success: true, count: data.length, skipped, leads: data }, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Server error." }, { status: 500 });
   }

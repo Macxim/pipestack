@@ -34,6 +34,14 @@ function injectStyles() {
     .pp-list::-webkit-scrollbar { width: 6px; }
     .pp-list::-webkit-scrollbar-track { background: transparent; }
     .pp-list::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
+
+    /* Custom checkboxes */
+    .pp-checkbox { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border: 2px solid #cbd5e1; border-radius: 6px; background: white; cursor: pointer; flex-shrink: 0; position: relative; transition: all 0.15s ease; }
+    .pp-checkbox:hover { border-color: ${DESIGN.primary}; }
+    .pp-checkbox:checked { background: ${DESIGN.primary}; border-color: ${DESIGN.primary}; }
+    .pp-checkbox:checked::after { content: ''; position: absolute; left: 5px; top: 0px; width: 5px; height: 10px; border: solid white; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+    .pp-checkbox:indeterminate { background: ${DESIGN.primary}; border-color: ${DESIGN.primary}; }
+    .pp-checkbox:indeterminate::after { content: ''; position: absolute; left: 4px; top: 7px; width: 8px; height: 2px; background: white; border-radius: 1px; }
   `;
   document.head.appendChild(s);
 }
@@ -122,7 +130,8 @@ function injectProfileButton() {
         },
       },
       (res) => {
-        if (res?.success) showToast("✓ Lead added to Pipestack!");
+        if (res?.success && res.result?.skipped) showToast("Lead already in your pipeline.");
+        else if (res?.success) showToast("✓ Lead added to Pipestack!");
         else showToast("✗ Failed. Is your app running?", true);
       }
     );
@@ -279,7 +288,7 @@ function openImportFlow(postRoot) {
           importPanelOpen = false;
           return;
         }
-        showPanel(commenters, existingDialog);
+        checkAndShowPanel(commenters, existingDialog);
       }, 800);
     });
     return;
@@ -296,7 +305,7 @@ function openImportFlow(postRoot) {
     if (inlineNodes.length > 0) {
       const commenters = extractFromCommentNodes(inlineNodes);
       if (commenters.length > 0) {
-        showPanel(commenters, postRoot);
+        checkAndShowPanel(commenters, postRoot);
         return;
       }
     }
@@ -381,7 +390,7 @@ function waitForModalAndScrape() {
               // Replace loading panel with real results
               document.getElementById("pipeline-panel")?.remove();
               importPanelOpen = false;
-              showPanel(commenters, dialog);
+              checkAndShowPanel(commenters, dialog);
             });
           }, 2000); // wait after expand before scrolling
         });
@@ -794,10 +803,35 @@ function getNameFromTitle() {
 
 // ─── Import panel ─────────────────────────────────────────────────
 
+function checkAndShowPanel(commenters, scrapeRoot) {
+  // Show a brief "Checking for duplicates..." status
+  updateLoadingPanel("Checking for duplicates...");
+
+  const leads = commenters.map((c) => ({
+    name: c.name,
+    profileUrl: c.profileUrl,
+  }));
+
+  safeSendMessage({ type: "CHECK_DUPLICATES", leads }, (response) => {
+    const duplicateSet = new Set(response?.result?.duplicates ?? []);
+
+    const taggedCommenters = commenters.map((c) => ({
+      ...c,
+      isDuplicate: duplicateSet.has(c.profileUrl),
+    }));
+
+    document.getElementById("pipeline-panel")?.remove();
+    importPanelOpen = false;
+    showPanel(taggedCommenters, scrapeRoot);
+  });
+}
+
 function createCommenterHTML(c, index) {
   const avatarHtml = c.avatarUrl
     ? `<img src="${c.avatarUrl}" style="width:40px;height:40px;border-radius:12px;object-fit:cover;flex-shrink:0;" />`
     : `<div style="width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#64748b;">${c.name.charAt(0).toUpperCase()}</div>`;
+
+  const isDupe = c.isDuplicate === true;
 
   return `
     <label class="pp-item" style="
@@ -805,13 +839,15 @@ function createCommenterHTML(c, index) {
       padding:12px; border-radius:14px; border:1px solid rgba(0,0,0,0.05);
       cursor:pointer; background:rgba(255,255,255,0.5);
       transition: ${DESIGN.transition};
+      ${isDupe ? "opacity: 0.5;" : ""}
     ">
-      <input type="checkbox" class="pp-cb" data-index="${index}" checked
-        style="width:18px; height:18px; cursor:pointer; flex-shrink:0; accent-color:${DESIGN.primary}" />
+      <input type="checkbox" class="pp-cb pp-checkbox" data-index="${index}" data-duplicate="${isDupe}"
+        ${isDupe ? "" : "checked"} />
       ${avatarHtml}
       <div style="min-width:0; flex:1;">
         <div style="font-size:14px;font-weight:700;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.name}</div>
         <div style="font-size:11px;color:#94a3b8;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">${c.profileUrl.replace("https://www.facebook.com/", "fb.com/")}</div>
+        ${isDupe ? `<span class="pp-dupe-badge" style="display:inline-block; font-size:10px; font-weight:700; color:#94a3b8; background:#f1f5f9; padding:2px 6px; border-radius:4px; margin-top:3px;">Already in pipeline</span>` : ""}
       </div>
     </label>
   `;
@@ -855,10 +891,16 @@ function showPanel(commenters, scrapeRoot = null) {
       </div>
     </div>
 
-    <div style="padding:14px 24px; background:rgba(0,0,0,0.02); border-bottom:1px solid rgba(0,0,0,0.05); display:flex; align-items:center; gap:10px; flex-shrink:0;">
-      <input type="checkbox" id="pp-select-all" checked style="width:18px; height:18px; cursor:pointer; accent-color:${DESIGN.primary}" />
-      <label for="pp-select-all" style="font-size:14px; font-weight:600; color:#475569; cursor:pointer;">Select All</label>
-      <span id="pp-count" style="font-size:12px; color:#94a3b8; margin-left:auto; font-weight:600; background:white; padding:2px 8px; border-radius:6px;">${commenters.length} active</span>
+    <div style="padding:14px 24px; background:rgba(0,0,0,0.02); border-bottom:1px solid rgba(0,0,0,0.05); flex-shrink:0; display:flex; flex-direction:column; gap:10px;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <input type="checkbox" id="pp-select-all" checked class="pp-checkbox" />
+        <label for="pp-select-all" style="font-size:14px; font-weight:600; color:#475569; cursor:pointer;">Select All</label>
+        <span id="pp-count" style="font-size:12px; color:#94a3b8; margin-left:auto; font-weight:600; background:white; padding:2px 8px; border-radius:6px;">${commenters.length} selected</span>
+      </div>
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="checkbox" id="pp-hide-dupes" class="pp-checkbox" />
+        <span style="font-size:12px; color:#94a3b8; font-weight:600;">Hide already imported</span>
+      </label>
     </div>
 
     <div id="pp-list" class="pp-list" style="flex:1; overflow-y:auto; padding:16px 24px; display:flex; flex-direction:column; gap:10px;">
@@ -882,7 +924,7 @@ function showPanel(commenters, scrapeRoot = null) {
     importPanelOpen = false;
   });
 
-  // Refresh button — re-scrape and merge new commenters
+  // Refresh button — auto-scroll dialog then re-scrape and merge new commenters
   document.getElementById("pp-refresh").addEventListener("click", () => {
     const refreshBtn = document.getElementById("pp-refresh");
     refreshBtn.style.animation = "spin 0.6s ease";
@@ -894,7 +936,8 @@ function showPanel(commenters, scrapeRoot = null) {
     // Expand any new "view more" buttons
     expandComments(root);
 
-    setTimeout(() => {
+    // Auto-scroll the dialog to load more comments, then scrape
+    autoScrollModal(root, () => {
       const newCommenters = scrapeCommenters(root);
 
       // Merge: add any new names not already in the list
@@ -918,33 +961,75 @@ function showPanel(commenters, scrapeRoot = null) {
         updateCount();
         showToast(`Found ${added.length} new commenter${added.length > 1 ? "s" : ""}!`);
       } else {
-        showToast("No new commenters found. Try scrolling through the comments first.");
+        showToast("No new commenters found.");
       }
 
       refreshBtn.style.animation = "";
       refreshBtn.disabled = false;
-    }, 1000);
+    });
   });
 
   const selectAll = document.getElementById("pp-select-all");
   const countEl = document.getElementById("pp-count");
 
   function cbs() { return Array.from(document.querySelectorAll(".pp-cb")); }
+  function visibleCbs() { return cbs().filter((cb) => cb.closest("label").style.display !== "none"); }
   function updateCount() {
     const n = cbs().filter((cb) => cb.checked).length;
     countEl.textContent = `${n} selected`;
   }
 
   selectAll.addEventListener("change", () => {
-    cbs().forEach((cb) => (cb.checked = selectAll.checked));
+    visibleCbs().forEach((cb) => (cb.checked = selectAll.checked));
     updateCount();
   });
 
   panel.addEventListener("change", (e) => {
     if (!e.target.classList.contains("pp-cb")) return;
-    const all = cbs();
-    selectAll.checked = all.every((cb) => cb.checked);
+
+    const cb = e.target;
+    const isDupe = cb.dataset.duplicate === "true";
+    const item = cb.closest("label");
+    const badge = item?.querySelector(".pp-dupe-badge");
+
+    if (isDupe && item) {
+      if (cb.checked) {
+        item.style.opacity = "1";
+        if (badge) {
+          badge.textContent = "Will re-import";
+          badge.style.color = "#d97706";
+          badge.style.background = "#fef3c7";
+        }
+      } else {
+        item.style.opacity = "0.5";
+        if (badge) {
+          badge.textContent = "Already in pipeline";
+          badge.style.color = "#94a3b8";
+          badge.style.background = "#f1f5f9";
+        }
+      }
+    }
+
+    const all = visibleCbs();
+    selectAll.checked = all.length > 0 && all.every((cb) => cb.checked);
     selectAll.indeterminate = all.some((cb) => cb.checked) && !all.every((cb) => cb.checked);
+    updateCount();
+  });
+
+  // Hide already-imported toggle
+  document.getElementById("pp-hide-dupes").addEventListener("change", (e) => {
+    const hide = e.target.checked;
+    document.querySelectorAll(".pp-cb").forEach((cb) => {
+      const isDupe = cb.dataset.duplicate === "true";
+      const item = cb.closest("label");
+      if (!item) return;
+      // Only hide if it's a dupe AND unchecked (re-import candidates stay visible)
+      if (hide && isDupe && !cb.checked) {
+        item.style.display = "none";
+      } else {
+        item.style.display = "flex";
+      }
+    });
     updateCount();
   });
 
@@ -967,13 +1052,42 @@ function showPanel(commenters, scrapeRoot = null) {
       { type: "SEND_LEADS_BATCH", payload: { leads: selected } },
       (response) => {
         if (response?.success) {
+          const skippedCount = response.result.skipped ?? 0;
+          const importedCount = response.result.count ?? 0;
           importBtn.style.background = "#10b981";
-          importBtn.textContent = `✓ ${response.result.count} leads imported!`;
-          statusEl.textContent = "Added to your pipeline.";
+          importBtn.textContent = `✓ ${importedCount} leads imported!`;
+          statusEl.textContent = skippedCount > 0
+            ? `Added to your pipeline. ${skippedCount} duplicate${skippedCount > 1 ? "s" : ""} skipped.`
+            : "Added to your pipeline.";
+          statusEl.style.color = "#10b981";
+
+          // Mark just-imported leads as duplicates so they can't be re-imported
+          cbs().filter((cb) => cb.checked).forEach((cb) => {
+            cb.checked = false;
+            cb.dataset.duplicate = "true";
+            const item = cb.closest("label");
+            if (item) item.style.opacity = "0.5";
+            // Add "Already in pipeline" badge if not already present
+            const info = item?.querySelector("div[style*='min-width']");
+            if (info && !info.querySelector(".pp-dupe-badge")) {
+              const badge = document.createElement("span");
+              badge.className = "pp-dupe-badge";
+              badge.style.cssText = "display:inline-block; font-size:10px; font-weight:700; color:#94a3b8; background:#f1f5f9; padding:2px 6px; border-radius:4px; margin-top:3px;";
+              badge.textContent = "Already in pipeline";
+              info.appendChild(badge);
+            }
+          });
+
+          updateCount();
+
+          // Reset button after a short delay so user can keep working
           setTimeout(() => {
-            panel.remove();
-            importPanelOpen = false;
-          }, 2000);
+            importBtn.style.background = DESIGN.primary;
+            importBtn.textContent = "Import Selected Leads";
+            importBtn.disabled = false;
+            statusEl.textContent = "";
+            statusEl.style.color = "#64748b";
+          }, 3000);
         } else {
           importBtn.disabled = false;
           importBtn.textContent = "Import Selected Leads";

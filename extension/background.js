@@ -22,6 +22,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "CHECK_DUPLICATES") {
+    checkDuplicates(message.leads)
+      .then((result) => sendResponse({ success: true, result }))
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (message.type === "SAVE_API_KEY") {
     chrome.storage.local.set({ apiKey: message.key }, () => {
       sendResponse({ success: true });
@@ -104,6 +111,27 @@ async function sendLeadsBatch(payload) {
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.error ?? "Failed to send leads");
+  }
+
+  return res.json();
+}
+
+async function checkDuplicates(leads) {
+  const [apiKey, apiBase] = await Promise.all([getApiKey(), getApiBase()]);
+  if (!apiKey) throw new Error("No API key set.");
+
+  const res = await fetch(`${apiBase}/api/leads/check-duplicates`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+    },
+    body: JSON.stringify({ leads }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.error ?? "Failed to check duplicates");
   }
 
   return res.json();
