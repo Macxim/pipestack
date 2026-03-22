@@ -1,21 +1,28 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useCallback } from "react";
 import {
   DndContext,
   DragEndEvent,
   DragOverEvent,
   DragStartEvent,
+  DragOverlay,
   PointerSensor,
   useSensor,
   useSensors,
-  closestCorners,
+  closestCenter,
 } from "@dnd-kit/core";
-import { arrayMove } from "@dnd-kit/sortable";
-import { Pipeline, Lead } from "@/app/types/pipeline";
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { createPortal } from "react-dom";
+import { Pipeline, Lead, Stage } from "@/app/types/pipeline";
 import StageColumn from "./StageColumn";
-import LeadDetailPanel from "./LeadDetailPanel";
+import LeadCard from "./LeadCard";
 import AddStageButton from "./AddStageButton";
+import LeadDetailPanel from "./LeadDetailPanel";
 
 type Props = {
   pipeline: Pipeline;
@@ -27,6 +34,11 @@ type SelectedLead = {
   stageName: string;
 };
 
+type ActiveDrag =
+  | { type: "card"; lead: Lead }
+  | { type: "column"; stage: Stage }
+  | null;
+
 const STAGE_COLORS = [
   "#3b82f6", "#8b5cf6", "#f59e0b", "#ec4899",
   "#ef4444", "#10b981", "#06b6d4", "#f97316",
@@ -34,42 +46,70 @@ const STAGE_COLORS = [
 
 export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
   const [selected, setSelected] = useState<SelectedLead | null>(null);
+  const [activeDrag, setActiveDrag] = useState<ActiveDrag>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
 
-  const findStageOfLead = (leadId: string) =>
-    pipeline.stages.find((s) => s.leads.some((l) => l.id === leadId));
+  // ─── Helpers ───────────────────────────────────────────────────
 
-  // ─── Drag and drop ──────────────────────────────────────────────
+  const findStageOfLead = useCallback(
+    (leadId: string) =>
+      pipeline.stages.find((s) => s.leads.some((l) => l.id === leadId)),
+    [pipeline.stages]
+  );
 
-  // Track where the lead originally came from before DragOver moves it
-  const dragSourceStageId = useRef<string | null>(null);
+  const isColumnId = (id: string) => String(id).startsWith("column-");
+  const extractStageId = (id: string) => String(id).replace("column-", "");
+
+  // ─── Drag start ─────────────────────────────────────────────────
 
   const handleDragStart = (event: DragStartEvent) => {
-    const stage = findStageOfLead(event.active.id as string);
-    dragSourceStageId.current = stage?.id ?? null;
+    const { active } = event;
+    const id = String(active.id);
+
+    if (isColumnId(id)) {
+      const stageId = extractStageId(id);
+      const stage = pipeline.stages.find((s) => s.id === stageId);
+      if (stage) setActiveDrag({ type: "column", stage });
+    } else {
+      const stage = findStageOfLead(id);
+      const lead = stage?.leads.find((l) => l.id === id);
+      if (lead) setActiveDrag({ type: "card", lead });
+    }
   };
+
+  // ─── Drag over (live reordering) ────────────────────────────────
 
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
     if (!over) return;
 
-    const activeStage = findStageOfLead(active.id as string);
+    const activeId = String(active.id);
+    const overId = String(over.id);
+
+    // Column dragging — no live reordering during drag to avoid jitter
+    if (isColumnId(activeId)) return;
+
+    // Card dragging — move card between columns live
+    const activeStage = findStageOfLead(activeId);
     const overStage =
-      findStageOfLead(over.id as string) ||
-      pipeline.stages.find((s) => s.id === over.id);
+      findStageOfLead(overId) ||
+      pipeline.stages.find((s) => s.id === overId) ||
+      (isColumnId(overId)
+        ? pipeline.stages.find((s) => s.id === extractStageId(overId))
+        : null);
 
     if (!activeStage || !overStage || activeStage.id === overStage.id) return;
 
-    const activeLead = activeStage.leads.find((l) => l.id === active.id)!;
-
+    const activeLead = activeStage.leads.find((l) => l.id === activeId)!;
+    
     onPipelineChange({
       ...pipeline,
       stages: pipeline.stages.map((stage) => {
         if (stage.id === activeStage.id)
-          return { ...stage, leads: stage.leads.filter((l) => l.id !== active.id) };
+          return { ...stage, leads: stage.leads.filter((l) => l.id !== activeId) };
         if (stage.id === overStage.id)
           return { ...stage, leads: [...stage.leads, activeLead] };
         return stage;
@@ -77,54 +117,181 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
     });
   };
 
+  // ─── Drag end (commit reorder) ──────────────────────────────────
+
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
-    const sourceStageId = dragSourceStageId.current;
-    dragSourceStageId.current = null;
+    setActiveDrag(null);
 
     if (!over) return;
 
-    const activeStage = findStageOfLead(active.id as string);
-    if (!activeStage) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
 
-    // Same-column reorder
-    if (activeStage.id === (findStageOfLead(over.id as string)?.id)) {
-      const oldIndex = activeStage.leads.findIndex((l) => l.id === active.id);
-      const newIndex = activeStage.leads.findIndex((l) => l.id === over.id);
+    // ── Column reorder ──
+    if (isColumnId(activeId) && isColumnId(overId)) {
+      const activeStageId = extractStageId(activeId);
+      const overStageId = extractStageId(overId);
 
-      if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-        const newLeads = arrayMove(activeStage.leads, oldIndex, newIndex);
+      if (activeStageId === overStageId) return;
 
-        onPipelineChange({
-          ...pipeline,
-          stages: pipeline.stages.map((stage) =>
-            stage.id === activeStage.id ? { ...stage, leads: newLeads } : stage
-          ),
-        });
+      const oldIndex = pipeline.stages.findIndex((s) => s.id === activeStageId);
+      const newIndex = pipeline.stages.findIndex((s) => s.id === overStageId);
+
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const newStages = arrayMove(pipeline.stages, oldIndex, newIndex);
+
+      onPipelineChange({ ...pipeline, stages: newStages });
+
+      // Persist to database
+      fetch("/api/stages/reorder", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stages: newStages.map((s, i) => ({ id: s.id, position: i })),
+        }),
+      }).catch(console.error);
+
+      return;
+    }
+
+    // ── Card reorder within same column ──
+    if (!isColumnId(activeId)) {
+      const activeStage = findStageOfLead(activeId);
+      const overStage = findStageOfLead(overId);
+
+      if (!activeStage || !overStage || activeStage.id !== overStage.id) {
+         // If it's a cross-column move, it was already handled in onDragOver.
+         // But we still need to persist the FINAL position of all leads in affected stages.
+         const affectedStageIds = new Set<string>();
+         if (activeStage) affectedStageIds.add(activeStage.id);
+         if (overStage) affectedStageIds.add(overStage.id);
+         
+         const leadsToPersist = pipeline.stages
+           .filter((s) => affectedStageIds.has(s.id))
+           .flatMap((s) => s.leads.map((l, i) => ({ id: l.id, stageId: s.id, position: i })));
+
+         if (leadsToPersist.length > 0) {
+           fetch("/api/leads/reorder", {
+             method: "POST",
+             headers: { "Content-Type": "application/json" },
+             body: JSON.stringify({ leads: leadsToPersist }),
+           }).catch(console.error);
+         }
+         return;
       }
-    }
 
-    // Persist: collect leads from all affected stages (source + destination)
-    const affectedStageIds = new Set<string>();
-    affectedStageIds.add(activeStage.id);
-    if (sourceStageId && sourceStageId !== activeStage.id) {
-      affectedStageIds.add(sourceStageId);
-    }
+      const oldIndex = activeStage.leads.findIndex((l) => l.id === activeId);
+      const newIndex = activeStage.leads.findIndex((l) => l.id === overId);
 
-    // Use the latest pipeline state after any reorder above
-    const latestPipeline = pipeline;
-    const leadsToPersist = latestPipeline.stages
-      .filter((s) => affectedStageIds.has(s.id))
-      .flatMap((s) =>
-        s.leads.map((l, i) => ({ id: l.id, stageId: s.id, position: i }))
-      );
+      if (oldIndex === newIndex) return;
 
-    if (leadsToPersist.length > 0) {
+      const newLeads = arrayMove(activeStage.leads, oldIndex, newIndex);
+
+      onPipelineChange({
+        ...pipeline,
+        stages: pipeline.stages.map((stage) =>
+          stage.id === activeStage.id ? { ...stage, leads: newLeads } : stage
+        ),
+      });
+
+      // Persist: all leads in this stage need their positions updated
       fetch("/api/leads/reorder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leads: leadsToPersist }),
+        body: JSON.stringify({
+          leads: newLeads.map((l, i) => ({
+            id: l.id,
+            stageId: activeStage.id,
+            position: i,
+          })),
+        }),
       }).catch(console.error);
+    }
+  };
+
+  // ─── Stage actions ──────────────────────────────────────────────
+
+  const handleAddStage = async (title: string) => {
+    const color = STAGE_COLORS[pipeline.stages.length % STAGE_COLORS.length];
+    const tempId = `temp-${Date.now()}`;
+
+    onPipelineChange({
+      ...pipeline,
+      stages: [...pipeline.stages, { id: tempId, title, color, leads: [] }],
+    });
+
+    try {
+      const res = await fetch("/api/stages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, color, pipelineId: pipeline.id }),
+      });
+      const data = await res.json();
+
+      onPipelineChange({
+        ...pipeline,
+        stages: pipeline.stages.map((s) =>
+          s.id === tempId ? { ...s, id: data.stage.id } : s
+        ),
+      });
+    } catch {
+      onPipelineChange({
+        ...pipeline,
+        stages: pipeline.stages.filter((s) => s.id !== tempId),
+      });
+    }
+  };
+
+  const handleDeleteStage = async (stageId: string) => {
+    const stage = pipeline.stages.find((s) => s.id === stageId);
+    if (!stage) return;
+
+    if (stage.leads.length > 0) {
+      const confirmed = confirm(
+        `"${stage.title}" has ${stage.leads.length} lead(s). Delete the column and all its leads?`
+      );
+      if (!confirmed) return;
+    }
+
+    const prev = pipeline;
+    onPipelineChange({
+      ...pipeline,
+      stages: pipeline.stages.filter((s) => s.id !== stageId),
+    });
+
+    try {
+      await fetch(`/api/stages/${stageId}`, { method: "DELETE" });
+    } catch {
+      onPipelineChange(prev);
+    }
+  };
+
+  const handleRenameStage = async (stageId: string, newTitle: string) => {
+    const oldStage = pipeline.stages.find((s) => s.id === stageId);
+    if (!oldStage) return;
+
+    onPipelineChange({
+      ...pipeline,
+      stages: pipeline.stages.map((s) =>
+        s.id === stageId ? { ...s, title: newTitle } : s
+      ),
+    });
+
+    try {
+      await fetch(`/api/stages/${stageId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: newTitle }),
+      });
+    } catch {
+      onPipelineChange({
+        ...pipeline,
+        stages: pipeline.stages.map((s) =>
+          s.id === stageId ? { ...s, title: oldStage.title } : s
+        ),
+      });
     }
   };
 
@@ -145,7 +312,6 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
   };
 
   const handleLeadDelete = async (leadId: string) => {
-    // Optimistic
     const prev = pipeline;
     onPipelineChange({
       ...pipeline,
@@ -159,122 +325,68 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
       const res = await fetch(`/api/leads?id=${leadId}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete lead");
     } catch {
-      onPipelineChange(prev); // Rollback
+      onPipelineChange(prev);
       alert("Failed to delete lead. Please try again.");
     }
   };
 
-  // ─── Stage actions ──────────────────────────────────────────────
+  // ─── Render ─────────────────────────────────────────────────────
 
-  const handleAddStage = async (title: string) => {
-    const color = STAGE_COLORS[pipeline.stages.length % STAGE_COLORS.length];
-
-    // Optimistic update
-    const tempId = `temp-${Date.now()}`;
-    onPipelineChange({
-      ...pipeline,
-      stages: [...pipeline.stages, { id: tempId, title, color, leads: [] }],
-    });
-
-    try {
-      const res = await fetch("/api/stages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, color, pipelineId: pipeline.id }),
-      });
-      const data = await res.json();
-
-      // Replace temp ID with real one from DB
-      onPipelineChange({
-        ...pipeline,
-        stages: [...pipeline.stages.filter((s) => s.id !== tempId), { id: data.stage.id, title, color, leads: [] }],
-      });
-    } catch {
-      // Rollback on failure
-      onPipelineChange({
-        ...pipeline,
-        stages: pipeline.stages.filter((s) => s.id !== tempId),
-      });
-    }
-  };
-
-  const handleDeleteStage = async (stageId: string) => {
-    const stage = pipeline.stages.find((s) => s.id === stageId);
-    if (!stage) return;
-
-    if (stage.leads.length > 0) {
-      const confirmed = confirm(
-        `"${stage.title}" has ${stage.leads.length} lead(s). Delete the column and all its leads?`
-      );
-      if (!confirmed) return;
-    }
-
-    // Optimistic
-    const prev = pipeline;
-    onPipelineChange({
-      ...pipeline,
-      stages: pipeline.stages.filter((s) => s.id !== stageId),
-    });
-
-    try {
-      await fetch(`/api/stages/${stageId}`, { method: "DELETE" });
-    } catch {
-      onPipelineChange(prev); // Rollback
-    }
-  };
-
-  const handleRenameStage = async (stageId: string, newTitle: string) => {
-    const oldStage = pipeline.stages.find((s) => s.id === stageId);
-    if (!oldStage) return;
-
-    // Optimistic
-    onPipelineChange({
-      ...pipeline,
-      stages: pipeline.stages.map((s) =>
-        s.id === stageId ? { ...s, title: newTitle } : s
-      ),
-    });
-
-    try {
-      await fetch(`/api/stages/${stageId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newTitle }),
-      });
-    } catch {
-      // Rollback
-      onPipelineChange({
-        ...pipeline,
-        stages: pipeline.stages.map((s) =>
-          s.id === stageId ? { ...s, title: oldStage.title } : s
-        ),
-      });
-    }
-  };
+  const columnIds = pipeline.stages.map((s) => `column-${s.id}`);
 
   return (
     <>
       <DndContext
-        id="pipeline-dnd-context"
         sensors={sensors}
-        collisionDetection={closestCorners}
+        collisionDetection={closestCenter}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
       >
-        <div className="flex gap-4 overflow-x-auto pb-6">
-          {pipeline.stages.map((stage) => (
-            <StageColumn
-              key={stage.id}
-              stage={stage}
-              onCardClick={(lead) => handleCardClick(lead, stage.title)}
-              onDelete={handleDeleteStage}
-              onRename={handleRenameStage}
-              onLeadDelete={handleLeadDelete}
-            />
-          ))}
-          <AddStageButton onAdd={handleAddStage} />
-        </div>
+        <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
+          <div className="flex gap-4 overflow-x-auto pb-6">
+            {pipeline.stages.map((stage) => (
+              <StageColumn
+                key={stage.id}
+                stage={stage}
+                onCardClick={(lead) => handleCardClick(lead, stage.title)}
+                onDelete={handleDeleteStage}
+                onRename={handleRenameStage}
+                onLeadDelete={handleLeadDelete}
+              />
+            ))}
+            <AddStageButton onAdd={handleAddStage} />
+          </div>
+        </SortableContext>
+
+        {typeof document !== "undefined" && createPortal(
+          <DragOverlay dropAnimation={{ duration: 200, easing: "ease" }}>
+            {activeDrag?.type === "card" && (
+              <div className="rotate-2 scale-105 shadow-xl opacity-90">
+                <LeadCard lead={activeDrag.lead} onClick={() => {}} />
+              </div>
+            )}
+            {activeDrag?.type === "column" && (
+              <div className="rotate-1 scale-105 shadow-xl opacity-90 w-64">
+                <div className="bg-white rounded-xl p-4 border border-blue-400 shadow-lg">
+                  <div className="flex items-center gap-2 mb-1">
+                    <div
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: activeDrag.stage.color }}
+                    />
+                    <p className="text-sm font-semibold text-gray-700 truncate">
+                      {activeDrag.stage.title}
+                    </p>
+                  </div>
+                  <p className="text-xs text-gray-400 pl-4">
+                    {activeDrag.stage.leads.length} lead{activeDrag.stage.leads.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+              </div>
+            )}
+          </DragOverlay>,
+          document.body
+        )}
       </DndContext>
 
       {selected && (
