@@ -79,11 +79,30 @@ function safeSendMessage(message, callback) {
 
 function getPageType() {
   const url = window.location.href;
+
   if (url.includes("instagram.com")) return "instagram_profile";
-  if (
-    url.match(/facebook\.com\/[a-zA-Z0-9.]+\/?$/) ||
-    url.match(/facebook\.com\/profile\.php/)
-  ) return "facebook_profile";
+
+  if (url.includes("facebook.com")) {
+    try {
+      const u = new URL(url);
+      const path = u.pathname.replace(/\/$/, "");
+      const segments = path.split("/").filter(Boolean);
+
+      // profile.php?id=xxx
+      if (path === "/profile.php" || u.searchParams.has("id")) return "facebook_profile";
+
+      // Single segment vanity URL: /username
+      // But exclude known non-profile paths
+      const NON_PROFILE = ["groups", "pages", "events", "marketplace",
+        "watch", "stories", "gaming", "notifications",
+        "settings", "help", "ads", "hashtag", "search"];
+
+      if (segments.length === 1 && !NON_PROFILE.includes(segments[0])) {
+        return "facebook_profile";
+      }
+    } catch { }
+  }
+
   return "facebook_feed";
 }
 
@@ -114,7 +133,14 @@ function removeAllUI() {
 
 function injectProfileButton() {
   const name = getNameFromTitle();
-  if (!name) return;
+  console.log("[PS] page type:", getPageType());
+  console.log("[PS] name from title:", name);
+  console.log("[PS] document.title:", document.title);
+
+  if (!name) {
+    console.log("[PS] no name found — button not injected");
+    return;
+  }
 
   const btn = makeFloatingButton("＋ Add to Pipestack", DESIGN.primary);
   btn.addEventListener("click", () => {
@@ -131,8 +157,8 @@ function injectProfileButton() {
       },
       (res) => {
         if (res?.success && res.result?.skipped) showToast("Lead already in your pipeline.");
-        else if (res?.success) showToast("✓ Lead added to Pipestack!");
-        else showToast("✗ Failed. Is your app running?", true);
+        else if (res?.success) showToast("Lead added to Pipestack!");
+        else showToast("Failed. Is your app running?", true);
       }
     );
   });
@@ -141,24 +167,45 @@ function injectProfileButton() {
 }
 
 function getProfileAvatar() {
-  // 1. Precise Facebook Profile Pic
-  const fbBigPic = document.querySelector('img[src*="fbcdn.net"][alt*="profile"], img[src*="scontent"][alt*="profile"], svg foreignObject img[src*="fbcdn"]');
-  if (fbBigPic && fbBigPic.src) return fbBigPic.src;
+  const name = getNameFromTitle();
 
-  // 2. SVG-based Facebook pics
-  const fbSvgPic = document.querySelector('image[xlink:href*="fbcdn.net"], image[*|href*="fbcdn.net"]');
-  if (fbSvgPic) {
-    const href = fbSvgPic.getAttribute('xlink:href') || fbSvgPic.getAttribute('href');
+  // 1. Find the SVG with aria-label matching the profile name
+  // This is exactly how Facebook marks the profile picture
+  if (name) {
+    const profileSvg = document.querySelector(`svg[aria-label="${name}"]`);
+    if (profileSvg) {
+      const img = profileSvg.querySelector("image");
+      const href = img?.getAttribute("xlink:href") || img?.getAttribute("href");
+      if (href) return href;
+    }
+  }
+
+  // 2. Fallback — largest SVG image on the page
+  const svgImages = Array.from(document.querySelectorAll("svg[role='img'] image"));
+  if (svgImages.length > 0) {
+    const largest = svgImages.reduce((best, img) => {
+      const w = parseFloat(img.closest("svg")?.style.width ?? "0");
+      const bestW = parseFloat(best.closest("svg")?.style.width ?? "0");
+      return w > bestW ? img : best;
+    }, svgImages[0]);
+
+    const href = largest.getAttribute("xlink:href") || largest.getAttribute("href");
     if (href) return href;
   }
 
-  // 3. Instagram Profile
-  const igPic = document.querySelector('header img[src*="cdninstagram"], img[alt*="profile picture"]');
-  if (igPic && igPic.src) return igPic.src;
+  // 3. Regular img fallback
+  const fbImg = document.querySelector(
+    'img[src*="fbcdn.net"][alt*="profile"], img[src*="scontent"][alt*="profile"]'
+  );
+  if (fbImg?.src) return fbImg.src;
 
-  // 4. Fallback search for any CDN image
-  const fallback = document.querySelector('img[src*="fbcdn.net"], img[src*="scontent.f"], img[src*="cdninstagram"]');
-  return fallback ? fallback.src : null;
+  // 4. Instagram
+  const igPic = document.querySelector(
+    'header img[src*="cdninstagram"], img[alt*="profile picture"]'
+  );
+  if (igPic?.src) return igPic.src;
+
+  return null;
 }
 
 function makeFloatingButton(label, color) {
@@ -247,15 +294,29 @@ function injectIntoAllBars() {
 }
 
 function findActionBars() {
-  // Strategy 1: explicit toolbar role
+  // Strategy 1: explicit toolbar role — most reliable
   const toolbars = Array.from(document.querySelectorAll("[role='toolbar']"));
   if (toolbars.length > 0) return toolbars;
 
-  // Strategy 2: divs containing Like + Comment + Share
+  // Strategy 2: divs that contain Like + Comment + Share as direct button children
+  // Must have role='button' children — not just text anywhere in the subtree
   return Array.from(document.querySelectorAll("div")).filter((div) => {
-    if (div.children.length < 2 || div.children.length > 10) return false;
-    const t = div.innerText ?? "";
-    return t.includes("Like") && t.includes("Comment") && t.includes("Share");
+    // Must have between 2-5 children to be an action bar
+    if (div.children.length < 2 || div.children.length > 5) return false;
+
+    // Require actual role='button' children (not just text match anywhere)
+    const buttons = Array.from(div.querySelectorAll("[role='button'], [aria-label]"));
+    if (buttons.length < 2) return false;
+
+    const labels = buttons.map(b =>
+      (b.getAttribute("aria-label") ?? b.textContent ?? "").toLowerCase()
+    );
+
+    const hasLike = labels.some(t => t.includes("like") || t.includes("react"));
+    const hasComment = labels.some(t => t.includes("comment") || t.includes("leave a comment"));
+    const hasShare = labels.some(t => t.includes("share"));
+
+    return hasLike && hasComment && hasShare;
   });
 }
 
@@ -795,10 +856,37 @@ function cleanProfileUrl(url) {
 }
 
 function getNameFromTitle() {
-  const match = document.title.match(/^(.+?)\s*[|\-–]\s*(Facebook|Instagram)/);
-  if (match?.[1]) return match[1].trim();
+  // document.title no longer contains the name on profile pages
+
+  // 1. og:title meta tag (most reliable, often still populated)
   const og = document.querySelector('meta[property="og:title"]');
-  return og?.getAttribute("content")?.split("|")[0].trim() ?? null;
+  if (og?.getAttribute("content")) {
+    const clean = og.getAttribute("content").split(/[|\-–•]/)[0].trim();
+    if (clean && clean.toLowerCase() !== "facebook") return clean;
+  }
+
+  // 2. The profile name heading — Facebook renders it as an h1 or a
+  //    prominent span near the cover photo
+  const candidates = [
+    'h1',
+    '[data-testid="profile_name_in_profile_page"]',
+    'span[dir="auto"]',
+  ];
+
+  for (const sel of candidates) {
+    const els = Array.from(document.querySelectorAll(sel));
+    for (const el of els) {
+      const text = el.textContent?.trim();
+      if (!text) continue;
+      if (text.length < 2 || text.length > 80) continue;
+      if (/^(Facebook|Instagram|Add friend|Follow|Message|More)$/i.test(text)) continue;
+      if (text.match(/^\d+$/)) continue;
+      // Must look like a name — at least two words OR a single word that's capitalised
+      if (text.includes(" ") || /^[A-Z]/.test(text)) return text;
+    }
+  }
+
+  return null;
 }
 
 // ─── Import panel ─────────────────────────────────────────────────
