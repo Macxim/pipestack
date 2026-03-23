@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -23,6 +23,7 @@ import StageColumn from "./StageColumn";
 import LeadCard from "./LeadCard";
 import AddStageButton from "./AddStageButton";
 import LeadDetailPanel from "./LeadDetailPanel";
+import BulkActionBar from "./BulkActionBar";
 
 type Props = {
   pipeline: Pipeline;
@@ -48,9 +49,19 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
   const [selected, setSelected] = useState<SelectedLead | null>(null);
   const [activeDrag, setActiveDrag] = useState<ActiveDrag>(null);
 
+  // Bulk selection state
+  const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
+
+  // Derived selection values
+  const isSelecting = selectedLeadIds.size > 0;
+  const selectedCount = selectedLeadIds.size;
+  const allLeads = useMemo(() => pipeline.stages.flatMap((s) => s.leads), [pipeline.stages]);
+  const selectedLeads = useMemo(() => allLeads.filter((l) => selectedLeadIds.has(l.id)), [allLeads, selectedLeadIds]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
+
 
   // ─── Helpers ───────────────────────────────────────────────────
 
@@ -59,6 +70,70 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
       pipeline.stages.find((s) => s.leads.some((l) => l.id === leadId)),
     [pipeline.stages]
   );
+
+  const toggleLead = (id: string) => {
+    if (selected) setSelected(null);
+    setSelectedLeadIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = useCallback(() => {
+    setSelectedLeadIds(new Set(allLeads.map((l) => l.id)));
+  }, [allLeads]);
+
+  const selectAllInStage = (stageId: string) => {
+    const stage = pipeline.stages.find((s) => s.id === stageId);
+    if (!stage) return;
+    setSelectedLeadIds((prev) => {
+      const next = new Set(prev);
+      stage.leads.forEach((l) => next.add(l.id));
+      return next;
+    });
+  };
+
+  const deselectAllInStage = (stageId: string) => {
+    const stage = pipeline.stages.find((s) => s.id === stageId);
+    if (!stage) return;
+    setSelectedLeadIds((prev) => {
+      const next = new Set(prev);
+      stage.leads.forEach((l) => next.delete(l.id));
+      return next;
+    });
+  };
+
+  const clearSelection = useCallback(() => setSelectedLeadIds(new Set()), []);
+
+  // ─── Keyboard shortcuts ───────────────────────────────────────
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+
+      // Escape clears selection
+      if (e.key === "Escape" && isSelecting) {
+        clearSelection();
+      }
+      // Cmd/Ctrl + A selects all leads
+      if ((e.metaKey || e.ctrlKey) && e.key === "a" && isSelecting) {
+        e.preventDefault();
+        selectAll();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isSelecting, clearSelection, selectAll]);
 
   const isColumnId = (id: string) => String(id).startsWith("column-");
   const extractStageId = (id: string) => String(id).replace("column-", "");
@@ -104,7 +179,7 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
     if (!activeStage || !overStage || activeStage.id === overStage.id) return;
 
     const activeLead = activeStage.leads.find((l) => l.id === activeId)!;
-    
+
     onPipelineChange({
       ...pipeline,
       stages: pipeline.stages.map((stage) => {
@@ -167,7 +242,7 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
          const affectedStageIds = new Set<string>();
          if (activeStage) affectedStageIds.add(activeStage.id);
          if (overStage) affectedStageIds.add(overStage.id);
-         
+
          const leadsToPersist = pipeline.stages
            .filter((s) => affectedStageIds.has(s.id))
            .flatMap((s) => s.leads.map((l, i) => ({ id: l.id, stageId: s.id, position: i })));
@@ -295,6 +370,89 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
     }
   };
 
+  // ─── Bulk Actions ───────────────────────────────────────────────
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedLeadIds);
+
+    // Optimistic update
+    onPipelineChange({
+      ...pipeline,
+      stages: pipeline.stages.map((stage) => ({
+        ...stage,
+        leads: stage.leads.filter((l) => !selectedLeadIds.has(l.id)),
+      })),
+    });
+    clearSelection();
+
+    try {
+      const res = await fetch("/api/leads/bulk-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds: ids }),
+      });
+      if (!res.ok) throw new Error("Bulk delete failed");
+    } catch {
+      window.location.reload();
+    }
+  };
+
+  const handleBulkMove = async (stageId: string) => {
+    const ids = Array.from(selectedLeadIds);
+    const leadsToMove = allLeads.filter((l) => selectedLeadIds.has(l.id));
+
+    // Optimistic update
+    onPipelineChange({
+      ...pipeline,
+      stages: pipeline.stages.map((stage) => {
+        const withoutMoved = stage.leads.filter((l) => !selectedLeadIds.has(l.id));
+        if (stage.id === stageId) {
+          return { ...stage, leads: [...withoutMoved, ...leadsToMove] };
+        }
+        return { ...stage, leads: withoutMoved };
+      }),
+    });
+    clearSelection();
+
+    try {
+      const res = await fetch("/api/leads/bulk-move", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds: ids, stageId }),
+      });
+      if (!res.ok) throw new Error("Bulk move failed");
+    } catch {
+      window.location.reload();
+    }
+  };
+
+  const handleBulkSetDate = async (date: string) => {
+    const ids = Array.from(selectedLeadIds);
+
+    // Optimistic update
+    onPipelineChange({
+      ...pipeline,
+      stages: pipeline.stages.map((stage) => ({
+        ...stage,
+        leads: stage.leads.map((l) =>
+          selectedLeadIds.has(l.id) ? { ...l, followUpDate: date } : l
+        ),
+      })),
+    });
+    clearSelection();
+
+    try {
+      const res = await fetch("/api/leads/bulk-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadIds: ids, updates: { followUpDate: date } }),
+      });
+      if (!res.ok) throw new Error("Bulk date update failed");
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // ─── Lead actions ───────────────────────────────────────────────
 
   const handleCardClick = (lead: Lead, stageName: string) => {
@@ -344,11 +502,16 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
         onDragEnd={handleDragEnd}
       >
         <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
-          <div className="flex gap-4 overflow-x-auto pb-6">
+          <div className={`flex gap-4 overflow-x-auto ${isSelecting ? "pb-32" : "pb-6"}`}>
             {pipeline.stages.map((stage) => (
               <StageColumn
                 key={stage.id}
                 stage={stage}
+                isSelecting={isSelecting}
+                selectedLeadIds={selectedLeadIds}
+                onToggleLead={toggleLead}
+                onSelectAllInStage={selectAllInStage}
+                onDeselectAllInStage={deselectAllInStage}
                 onCardClick={(lead) => handleCardClick(lead, stage.title)}
                 onDelete={handleDeleteStage}
                 onRename={handleRenameStage}
@@ -395,6 +558,20 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
           stageName={selected.stageName}
           onClose={() => setSelected(null)}
           onSave={handleSaveLead}
+        />
+      )}
+
+      {isSelecting && (
+        <BulkActionBar
+          selectedCount={selectedCount}
+          selectedLeads={selectedLeads}
+          stages={pipeline.stages}
+          totalLeadCount={allLeads.length}
+          onMove={handleBulkMove}
+          onSetDate={handleBulkSetDate}
+          onDelete={handleBulkDelete}
+          onSelectAll={selectAll}
+          onClear={clearSelection}
         />
       )}
     </>

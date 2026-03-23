@@ -6,11 +6,21 @@ import { useEffect, useState } from "react";
 
 type Props = {
   lead: Lead;
+  isSelecting?: boolean;
+  isSelected?: boolean;
+  onToggle?: () => void;
   onClick?: () => void;
   onDelete?: () => void;
 };
 
-export default function SortableLeadCard({ lead, onClick, onDelete }: Props) {
+export default function SortableLeadCard({
+  lead,
+  isSelecting,
+  isSelected,
+  onToggle,
+  onClick,
+  onDelete
+}: Props) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -24,7 +34,10 @@ export default function SortableLeadCard({ lead, onClick, onDelete }: Props) {
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: lead.id });
+  } = useSortable({
+    id: lead.id,
+    disabled: isSelecting,
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -36,10 +49,17 @@ export default function SortableLeadCard({ lead, onClick, onDelete }: Props) {
     <div
       ref={setNodeRef}
       style={style}
-      {...(mounted ? attributes : {})}
-      {...(mounted ? listeners : {})}
+      {...(mounted && !isSelecting ? attributes : {})}
+      {...(mounted && !isSelecting ? listeners : {})}
     >
-      <LeadCard lead={lead} onClick={onClick} onDelete={onDelete} />
+      <LeadCard
+        lead={lead}
+        isSelecting={isSelecting}
+        isSelected={isSelected}
+        onToggle={onToggle}
+        onClick={onClick}
+        onDelete={onDelete}
+      />
     </div>
   );
 }

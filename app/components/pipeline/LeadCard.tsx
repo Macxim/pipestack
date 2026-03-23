@@ -3,11 +3,21 @@ import { getFollowUpStatus } from "@/lib/follow-up-status";
 
 type Props = {
   lead: Lead;
+  isSelecting?: boolean;
+  isSelected?: boolean;
+  onToggle?: () => void;
   onClick?: () => void;
   onDelete?: (e: React.MouseEvent) => void;
 };
 
-export default function LeadCard({ lead, onClick, onDelete }: Props) {
+export default function LeadCard({ 
+  lead, 
+  isSelecting, 
+  isSelected, 
+  onToggle, 
+  onClick, 
+  onDelete 
+}: Props) {
   const initials = lead.name
     .split(" ")
     .map((n) => n[0])
@@ -19,15 +29,65 @@ export default function LeadCard({ lead, onClick, onDelete }: Props) {
 
   return (
     <div
-      onClick={onClick}
-      className="group relative bg-white rounded-lg border border-gray-200 p-3 shadow-sm cursor-grab active:cursor-grabbing hover:border-blue-300 transition-all"
+      onClick={(e) => {
+        if (isSelecting && onToggle) {
+          onToggle();
+        } else if (onClick) {
+          onClick();
+        }
+      }}
+      className={`
+        group relative bg-white rounded-xl border p-3 shadow-sm transition-all
+        ${isSelecting ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"}
+        ${isSelected 
+          ? "border-blue-400 ring-2 ring-blue-100 shadow-sm" 
+          : "border-gray-200 hover:border-blue-300"
+        }
+        ${isSelecting && !isSelected ? "opacity-75" : "opacity-100"}
+      `}
       style={{
         borderLeft: followUp.state !== "none" && (followUp.state === "overdue" || followUp.state === "today")
           ? `3px solid ${followUp.border}`
           : undefined,
       }}
     >
-      <div className="flex items-start gap-3">
+      {/* Checkbox */}
+      <div
+        className={`
+          absolute top-2 left-2 transition-opacity duration-150 z-10
+          ${isSelecting ? "opacity-100" : "opacity-0 group-hover:opacity-100"}
+        `}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggle?.();
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <div
+          className={`
+            w-5 h-5 rounded-md border-2 flex items-center justify-center
+            transition-all duration-150 cursor-pointer
+            ${isSelected
+              ? "bg-blue-600 border-blue-600"
+              : "bg-white border-gray-300 hover:border-blue-400"
+            }
+          `}
+        >
+          {isSelected && (
+            <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+              <path
+                d="M1 4L3.5 6.5L9 1"
+                stroke="white"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+        </div>
+      </div>
+
+      <div className={`flex items-start gap-3 ${isSelecting ? "pl-6" : ""}`}>
         {/* Avatar Section */}
         <div className="relative shrink-0">
           {lead.avatarUrl ? (
