@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Lead } from "@/app/types/pipeline";
 import { getFollowUpStatus } from "@/lib/follow-up-status";
 
@@ -9,17 +9,31 @@ type Props = {
   stageName: string;
   onClose: () => void;
   onSave: (updated: Lead) => void;
+  onDelete: (leadId: string) => void;
 };
 
-export default function LeadDetailPanel({ lead, stageName, onClose, onSave }: Props) {
+export default function LeadDetailPanel({ lead, stageName, onClose, onSave, onDelete }: Props) {
   const [form, setForm] = useState<Lead>(lead);
+  const [loading, setLoading] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const followUp = getFollowUpStatus(form.followUpDate);
+
+  useEffect(() => {
+    setConfirmingDelete(false);
+    setDeleting(false);
+    setDeleteError(null);
+    setForm(lead);
+  }, [lead.id]);
 
   const update = (field: keyof Lead, value: string | number) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleSave = async () => {
+    setLoading(true);
     try {
       const res = await fetch(`/api/leads/${form.id}`, {
         method: "PATCH",
@@ -40,6 +54,31 @@ export default function LeadDetailPanel({ lead, stageName, onClose, onSave }: Pr
       onClose();
     } catch {
       alert("Failed to save changes. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const res = await fetch(`/api/leads/${lead.id}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to delete lead.");
+      }
+
+      onDelete(lead.id);
+      onClose();
+    } catch (err: any) {
+      setDeleting(false);
+      setConfirmingDelete(false);
+      setDeleteError(err.message ?? "Something went wrong. Please try again.");
     }
   };
 
@@ -164,19 +203,76 @@ export default function LeadDetailPanel({ lead, stageName, onClose, onSave }: Pr
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 flex gap-3">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2.5 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            className="flex-1 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Save changes
-          </button>
+        <div className="flex-shrink-0 border-t border-gray-100 px-6 py-4 mt-auto">
+          {!confirmingDelete ? (
+            <div className="flex items-center justify-between">
+              {/* Delete button - left */}
+              <button
+                onClick={() => setConfirmingDelete(true)}
+                disabled={deleting}
+                className="flex items-center gap-1.5 text-sm font-medium text-red-500 hover:text-red-600 transition-colors disabled:opacity-50"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polyline points="3,6 5,6 21,6"/>
+                  <path d="M19 6l-1 14H6L5 6"/>
+                  <path d="M10 11v6M14 11v6"/>
+                  <path d="M9 6V4h6v2"/>
+                </svg>
+                Delete
+              </button>
+
+              {/* Save + Cancel - right */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setConfirmingDelete(false);
+                    onClose();
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={loading}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                >
+                  {loading ? "Saving..." : "Save changes"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                  <line x1="12" y1="9" x2="12" y2="13"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+                <span className="text-sm text-gray-600 truncate">
+                  Delete this lead? This cannot be undone.
+                </span>
+              </div>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="px-3 py-1.5 text-xs font-semibold text-white bg-red-500 rounded-lg hover:bg-red-600 disabled:opacity-50 transition-colors whitespace-nowrap shrink-0"
+              >
+                {deleting ? "Deleting..." : "Yes, delete"}
+              </button>
+              <button
+                onClick={() => setConfirmingDelete(false)}
+                disabled={deleting}
+                className="text-sm text-gray-500 hover:text-gray-700 transition-colors whitespace-nowrap shrink-0"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {deleteError && (
+            <p className="text-xs text-red-500 mt-2">{deleteError}</p>
+          )}
         </div>
 
       </div>

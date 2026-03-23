@@ -453,6 +453,23 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
     }
   };
 
+  const handleDeleteLead = (leadId: string) => {
+    onPipelineChange({
+      ...pipeline,
+      stages: pipeline.stages.map((stage) => ({
+        ...stage,
+        leads: stage.leads.filter((l) => l.id !== leadId),
+      })),
+    });
+
+    // If the deleted lead was selected in bulk mode, remove from selection
+    setSelectedLeadIds((prev) => {
+      const next = new Set(prev);
+      next.delete(leadId);
+      return next;
+    });
+  };
+
   // ─── Lead actions ───────────────────────────────────────────────
 
   const handleCardClick = (lead: Lead, stageName: string) => {
@@ -558,6 +575,7 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
           stageName={selected.stageName}
           onClose={() => setSelected(null)}
           onSave={handleSaveLead}
+          onDelete={handleDeleteLead}
         />
       )}
 
