@@ -17,17 +17,17 @@ export default function Sidebar() {
 
   return (
     <aside className="w-24 h-screen bg-gray-900 flex flex-col items-center justify-between py-4 px-6 fixed left-0 top-0 z-1">
-      <div className="flex flex-col items-center gap-6">
+      <div className="flex flex-col items-center gap-10">
         <Link href="/">
           <Image src="/pipestack.svg" alt="Pipestack" width={50} height={50} />
         </Link>
 
-        <nav className="flex flex-col items-center gap-4">
+        <nav className="flex flex-col items-center gap-6">
           {/* Pipeline */}
           <Link
             href="/"
             className={`flex flex-col items-center gap-1 transition-colors ${
-              pathname === "/" ? "text-white" : "text-gray-500 hover:text-gray-300"
+              pathname === "/" ? "text-white" : "text-gray-300 hover:text-gray-100"
             }`}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -40,7 +40,7 @@ export default function Sidebar() {
           <Link
             href="/leads/new"
             className={`flex flex-col items-center gap-1 transition-colors ${
-              pathname === "/leads/new" ? "text-white" : "text-gray-500 hover:text-gray-300"
+              pathname === "/leads/new" ? "text-white" : "text-gray-300 hover:text-gray-100"
             }`}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -53,7 +53,7 @@ export default function Sidebar() {
           <Link
             href="/import"
             className={`flex flex-col items-center gap-1 transition-colors ${
-              pathname === "/import" ? "text-white" : "text-gray-500 hover:text-gray-300"
+              pathname === "/import" ? "text-white" : "text-gray-300 hover:text-gray-100"
             }`}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -66,7 +66,7 @@ export default function Sidebar() {
           <Link
             href="/settings"
             className={`flex flex-col items-center gap-1 transition-colors ${
-              pathname === "/settings" ? "text-white" : "text-gray-500 hover:text-gray-300"
+              pathname === "/settings" ? "text-white" : "text-gray-300 hover:text-gray-100"
             }`}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -80,7 +80,7 @@ export default function Sidebar() {
 
       <button
         onClick={handleLogout}
-        className="text-xs font-medium text-gray-500 hover:text-gray-300 transition-colors"
+        className="text-xs font-medium text-gray-300 hover:text-gray-100 transition-colors"
       >
         Log out
       </button>
