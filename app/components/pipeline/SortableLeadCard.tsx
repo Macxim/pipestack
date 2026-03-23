@@ -6,20 +6,22 @@ import { useEffect, useState } from "react";
 
 type Props = {
   lead: Lead;
-  isSelecting?: boolean;
-  isSelected?: boolean;
-  onToggle?: () => void;
-  onClick?: () => void;
-  onDelete?: () => void;
+  isSelecting: boolean;
+  isSelected: boolean;
+  dimmed?: boolean;
+  onToggle: () => void;
+  onClick: () => void;
+  onDelete: () => void;
 };
 
 export default function SortableLeadCard({
   lead,
   isSelecting,
   isSelected,
+  dimmed = false,
   onToggle,
   onClick,
-  onDelete
+  onDelete,
 }: Props) {
   const [mounted, setMounted] = useState(false);
 
@@ -56,6 +58,7 @@ export default function SortableLeadCard({
         lead={lead}
         isSelecting={isSelecting}
         isSelected={isSelected}
+        dimmed={dimmed}
         onToggle={onToggle}
         onClick={onClick}
         onDelete={onDelete}

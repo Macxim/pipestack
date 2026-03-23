@@ -24,6 +24,10 @@ import LeadCard from "./LeadCard";
 import AddStageButton from "./AddStageButton";
 import LeadDetailPanel from "./LeadDetailPanel";
 import BulkActionBar from "./BulkActionBar";
+import { getFollowUpCounts } from "@/lib/follow-up-counts";
+import { getFollowUpStatus } from "@/lib/follow-up-status";
+import { useFollowUpCounts } from "@/app/context/FollowUpContext";
+import FollowUpBar from "./FollowUpBar";
 
 type Props = {
   pipeline: Pipeline;
@@ -48,6 +52,7 @@ const STAGE_COLORS = [
 export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
   const [selected, setSelected] = useState<SelectedLead | null>(null);
   const [activeDrag, setActiveDrag] = useState<ActiveDrag>(null);
+  const [showingDueOnly, setShowingDueOnly] = useState(false);
 
   // Bulk selection state
   const [selectedLeadIds, setSelectedLeadIds] = useState<Set<string>>(new Set());
@@ -58,6 +63,29 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
   const allLeads = useMemo(() => pipeline.stages.flatMap((s) => s.leads), [pipeline.stages]);
   const selectedLeads = useMemo(() => allLeads.filter((l) => selectedLeadIds.has(l.id)), [allLeads, selectedLeadIds]);
 
+  const { setCounts } = useFollowUpCounts();
+  const counts = useMemo(() => getFollowUpCounts(pipeline), [pipeline]);
+
+  useEffect(() => {
+    setCounts(counts);
+  }, [counts, setCounts]);
+
+  // Auto-clear filter
+  useEffect(() => {
+    if (showingDueOnly && counts.total === 0) {
+      setShowingDueOnly(false);
+    }
+  }, [counts.total, showingDueOnly]);
+
+  // Document title updates
+  useEffect(() => {
+    if (counts.total === 0) {
+      document.title = "Pipestack";
+    } else {
+      document.title = `(${counts.total}) Pipestack`;
+    }
+    return () => { document.title = "Pipestack"; };
+  }, [counts.total]);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
   );
@@ -511,63 +539,92 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
 
   return (
     <>
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
-          <div className={`flex gap-4 overflow-x-auto ${isSelecting ? "pb-32" : "pb-6"}`}>
-            {pipeline.stages.map((stage) => (
-              <StageColumn
-                key={stage.id}
-                stage={stage}
-                isSelecting={isSelecting}
-                selectedLeadIds={selectedLeadIds}
-                onToggleLead={toggleLead}
-                onSelectAllInStage={selectAllInStage}
-                onDeselectAllInStage={deselectAllInStage}
-                onCardClick={(lead) => handleCardClick(lead, stage.title)}
-                onDelete={handleDeleteStage}
-                onRename={handleRenameStage}
-                onLeadDelete={handleLeadDelete}
-              />
-            ))}
-            <AddStageButton onAdd={handleAddStage} />
-          </div>
-        </SortableContext>
+      <div className="flex flex-col">
+        {/* Bars — always full width, never scroll */}
+        <FollowUpBar
+          counts={counts}
+          onShowDueLeads={() => setShowingDueOnly(true)}
+        />
 
-        {typeof document !== "undefined" && createPortal(
-          <DragOverlay dropAnimation={{ duration: 200, easing: "ease" }}>
-            {activeDrag?.type === "card" && (
-              <div className="rotate-2 scale-105 shadow-xl opacity-90">
-                <LeadCard lead={activeDrag.lead} onClick={() => {}} />
-              </div>
-            )}
-            {activeDrag?.type === "column" && (
-              <div className="rotate-1 scale-105 shadow-xl opacity-90 w-64">
-                <div className="bg-white rounded-xl p-4 border border-blue-400 shadow-lg">
-                  <div className="flex items-center gap-2 mb-1">
-                    <div
-                      className="w-2.5 h-2.5 rounded-full shrink-0"
-                      style={{ backgroundColor: activeDrag.stage.color }}
-                    />
-                    <p className="text-sm font-semibold text-gray-700 truncate">
-                      {activeDrag.stage.title}
-                    </p>
-                  </div>
-                  <p className="text-xs text-gray-400 pl-4">
-                    {activeDrag.stage.leads.length} lead{activeDrag.stage.leads.length !== 1 ? "s" : ""}
-                  </p>
-                </div>
-              </div>
-            )}
-          </DragOverlay>,
-          document.body
+        {showingDueOnly && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl text-sm mb-4">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#2563eb" strokeWidth="2">
+              <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+            </svg>
+            <span className="text-blue-700 font-medium flex-1">
+              Showing {counts.total} lead{counts.total !== 1 ? "s" : ""} with due or overdue follow-ups
+            </span>
+            <button
+              onClick={() => setShowingDueOnly(false)}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+            >
+              Clear filter
+            </button>
+          </div>
         )}
-      </DndContext>
+
+        {/* Board — scrolls horizontally only */}
+        <div className="overflow-x-auto">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={columnIds} strategy={horizontalListSortingStrategy}>
+              <div className={`flex gap-4 ${isSelecting ? "pb-32" : "pb-6"}`}>
+                {pipeline.stages.map((stage) => (
+                  <StageColumn
+                    key={stage.id}
+                    stage={stage}
+                    isSelecting={isSelecting}
+                    selectedLeadIds={selectedLeadIds}
+                    showingDueOnly={showingDueOnly}
+                    onToggleLead={toggleLead}
+                    onSelectAllInStage={selectAllInStage}
+                    onDeselectAllInStage={deselectAllInStage}
+                    onCardClick={(lead) => handleCardClick(lead, stage.title)}
+                    onDelete={handleDeleteStage}
+                    onRename={handleRenameStage}
+                    onLeadDelete={handleLeadDelete}
+                  />
+                ))}
+                <AddStageButton onAdd={handleAddStage} />
+              </div>
+            </SortableContext>
+
+            {typeof document !== "undefined" && createPortal(
+              <DragOverlay dropAnimation={{ duration: 200, easing: "ease" }}>
+                {activeDrag?.type === "card" && (
+                  <div className="rotate-2 scale-105 shadow-xl opacity-90">
+                    <LeadCard lead={activeDrag.lead} onClick={() => {}} />
+                  </div>
+                )}
+                {activeDrag?.type === "column" && (
+                  <div className="rotate-1 scale-105 shadow-xl opacity-90 w-64">
+                    <div className="bg-white rounded-xl p-4 border border-blue-400 shadow-lg">
+                      <div className="flex items-center gap-2 mb-1">
+                        <div
+                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: activeDrag.stage.color }}
+                        />
+                        <p className="text-sm font-semibold text-gray-700 truncate">
+                          {activeDrag.stage.title}
+                        </p>
+                      </div>
+                      <p className="text-xs text-gray-400 pl-4">
+                        {activeDrag.stage.leads.length} lead{activeDrag.stage.leads.length !== 1 ? "s" : ""}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </DragOverlay>,
+              document.body
+            )}
+          </DndContext>
+        </div>
+      </div>
 
       {selected && (
         <LeadDetailPanel

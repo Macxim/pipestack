@@ -5,18 +5,20 @@ type Props = {
   lead: Lead;
   isSelecting?: boolean;
   isSelected?: boolean;
+  dimmed?: boolean;
   onToggle?: () => void;
   onClick?: () => void;
   onDelete?: (e: React.MouseEvent) => void;
 };
 
-export default function LeadCard({ 
-  lead, 
-  isSelecting, 
-  isSelected, 
-  onToggle, 
-  onClick, 
-  onDelete 
+export default function LeadCard({
+  lead,
+  isSelecting,
+  isSelected,
+  dimmed,
+  onToggle = () => {},
+  onClick,
+  onDelete
 }: Props) {
   const initials = lead.name
     .split(" ")
@@ -30,20 +32,20 @@ export default function LeadCard({
   return (
     <div
       onClick={(e) => {
-        if (isSelecting && onToggle) {
+        if (isSelecting) {
           onToggle();
         } else if (onClick) {
           onClick();
         }
       }}
       className={`
-        group relative bg-white rounded-xl border p-3 shadow-sm transition-all
+        group relative bg-white rounded-xl border p-3 shadow-sm transition-all duration-200
         ${isSelecting ? "cursor-pointer" : "cursor-grab active:cursor-grabbing"}
-        ${isSelected 
-          ? "border-blue-400 ring-2 ring-blue-100 shadow-sm" 
+        ${isSelected
+          ? "border-blue-400 ring-2 ring-blue-100 shadow-sm"
           : "border-gray-200 hover:border-blue-300"
         }
-        ${isSelecting && !isSelected ? "opacity-75" : "opacity-100"}
+        ${dimmed ? "opacity-30" : "opacity-100"}
       `}
       style={{
         borderLeft: followUp.state !== "none" && (followUp.state === "overdue" || followUp.state === "today")

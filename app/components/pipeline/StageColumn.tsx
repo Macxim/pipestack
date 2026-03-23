@@ -9,6 +9,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Lead, Stage } from "@/app/types/pipeline";
+import { getFollowUpStatus } from "@/lib/follow-up-status";
 import SortableLeadCard from "./SortableLeadCard";
 
 type Props = {
@@ -22,22 +23,24 @@ type Props = {
   onDelete: (stageId: string) => void;
   onRename: (stageId: string, newTitle: string) => void;
   onLeadDelete: (leadId: string) => void;
+  showingDueOnly?: boolean;
 };
 
 const totalValue = (stage: Stage) =>
   stage.leads.reduce((sum, l) => sum + (l.value || 0), 0);
 
-export default function StageColumn({ 
-  stage, 
+export default function StageColumn({
+  stage,
   isSelecting,
   selectedLeadIds,
+  showingDueOnly = false,
   onToggleLead,
   onSelectAllInStage,
   onDeselectAllInStage,
-  onCardClick, 
-  onDelete, 
-  onRename, 
-  onLeadDelete 
+  onCardClick,
+  onDelete,
+  onRename,
+  onLeadDelete
 }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [isHoveringHeader, setIsHoveringHeader] = useState(false);
@@ -49,6 +52,11 @@ export default function StageColumn({
 
   const someInStageSelected =
     stage.leads.some((l) => selectedLeadIds.has(l.id)) && !allInStageSelected;
+
+  const isDueOrOverdue = useCallback((lead: Lead) => {
+    const status = getFollowUpStatus(lead.followUpDate);
+    return status.state === "overdue" || status.state === "today";
+  }, []);
 
   // ── Column sortable (for horizontal dragging) ──
   const {
@@ -239,8 +247,9 @@ export default function StageColumn({
               <SortableLeadCard
                 key={lead.id}
                 lead={lead}
-                isSelecting={isSelecting}
+                isSelecting={isSelecting || showingDueOnly}
                 isSelected={selectedLeadIds.has(lead.id)}
+                dimmed={showingDueOnly && !isDueOrOverdue(lead)}
                 onToggle={() => onToggleLead(lead.id)}
                 onClick={() => onCardClick(lead)}
                 onDelete={() => onLeadDelete(lead.id)}

@@ -13,6 +13,7 @@ export function getFollowUpStatus(followUpDate: string | null | undefined): Foll
   today.setHours(0, 0, 0, 0);
 
   const due = new Date(followUpDate);
+  if (isNaN(due.getTime())) return { state: "none" };
   due.setHours(0, 0, 0, 0);
 
   const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
