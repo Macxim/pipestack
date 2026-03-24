@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { forwardRef, useImperativeHandle, useCallback, useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -25,7 +25,6 @@ import AddStageButton from "./AddStageButton";
 import LeadDetailPanel from "./LeadDetailPanel";
 import BulkActionBar from "./BulkActionBar";
 import { getFollowUpCounts } from "@/lib/follow-up-counts";
-import { getFollowUpStatus } from "@/lib/follow-up-status";
 import { useFollowUpCounts } from "@/app/context/FollowUpContext";
 import FollowUpBar from "./FollowUpBar";
 
@@ -34,9 +33,13 @@ type Props = {
   onPipelineChange: (updated: Pipeline) => void;
 };
 
-type SelectedLead = {
+export type SelectedLead = {
   lead: Lead;
   stageName: string;
+};
+
+export type PipelineBoardHandle = {
+  openLead: (leadId: string) => void;
 };
 
 type ActiveDrag =
@@ -49,7 +52,8 @@ const STAGE_COLORS = [
   "#ef4444", "#10b981", "#06b6d4", "#f97316",
 ];
 
-export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
+const PipelineBoard = forwardRef<PipelineBoardHandle, Props>(
+  ({ pipeline, onPipelineChange }, ref) => {
   const [selected, setSelected] = useState<SelectedLead | null>(null);
   const [activeDrag, setActiveDrag] = useState<ActiveDrag>(null);
   const [showingDueOnly, setShowingDueOnly] = useState(false);
@@ -63,12 +67,13 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
   const allLeads = useMemo(() => pipeline.stages.flatMap((s) => s.leads), [pipeline.stages]);
   const selectedLeads = useMemo(() => allLeads.filter((l) => selectedLeadIds.has(l.id)), [allLeads, selectedLeadIds]);
 
-  const { setCounts } = useFollowUpCounts();
+  const { setCounts, setPipeline } = useFollowUpCounts();
   const counts = useMemo(() => getFollowUpCounts(pipeline), [pipeline]);
 
   useEffect(() => {
     setCounts(counts);
-  }, [counts, setCounts]);
+    setPipeline(pipeline);
+  }, [counts, pipeline, setCounts, setPipeline]);
 
   // Auto-clear filter
   useEffect(() => {
@@ -86,9 +91,40 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
     }
     return () => { document.title = "Pipestack"; };
   }, [counts.total]);
+
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } })
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    })
   );
+
+  useImperativeHandle(ref, () => ({
+    openLead: (leadId: string) => {
+      const allLeadsUnderRef = pipeline.stages.flatMap((s) =>
+        s.leads.map((l) => ({ lead: l, stageName: s.title }))
+      );
+      const found = allLeadsUnderRef.find((x) => x.lead.id === leadId);
+      if (found) setSelected(found);
+    },
+  }));
+
+  // Handle pending lead from session storage (cross-page navigation)
+  useEffect(() => {
+    const pendingLeadId = sessionStorage.getItem("pipestack_open_lead");
+    if (pendingLeadId) {
+      sessionStorage.removeItem("pipestack_open_lead");
+      // Small delay to let the board render first
+      setTimeout(() => {
+        const allLeadsUnderEffect = pipeline.stages.flatMap((s) =>
+          s.leads.map((l) => ({ lead: l, stageName: s.title }))
+        );
+        const found = allLeadsUnderEffect.find((x) => x.lead.id === pendingLeadId);
+        if (found) setSelected(found);
+      }, 100);
+    }
+  }, [pipeline.stages]);
 
 
   // ─── Helpers ───────────────────────────────────────────────────
@@ -481,7 +517,7 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
     }
   };
 
-  const handleDeleteLead = (leadId: string) => {
+  const handleDeleteLeadFromSummary = (leadId: string) => {
     onPipelineChange({
       ...pipeline,
       stages: pipeline.stages.map((stage) => ({
@@ -632,7 +668,7 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
           stageName={selected.stageName}
           onClose={() => setSelected(null)}
           onSave={handleSaveLead}
-          onDelete={handleDeleteLead}
+          onDelete={handleDeleteLeadFromSummary}
         />
       )}
 
@@ -651,4 +687,8 @@ export default function PipelineBoard({ pipeline, onPipelineChange }: Props) {
       )}
     </>
   );
-}
+});
+
+PipelineBoard.displayName = "PipelineBoard";
+
+export default PipelineBoard;

@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import AppShell from "./components/layout/AppShell";
-import PipelineBoardWrapper from "./components/pipeline/PipelineBoardWrapper";
+import PipelinePageClient from "./components/pipeline/PipelinePageClient";
 import { createSupabaseServerClient } from "@/lib/supabase-server";
 import { Pipeline } from "./types/pipeline";
 
@@ -52,9 +51,5 @@ export default async function Home() {
     })),
   };
 
-  return (
-    <AppShell title={pipelineData.title} pipelineId={pipelineData.id}>
-      <PipelineBoardWrapper initialPipeline={pipelineData} />
-    </AppShell>
-  );
+  return <PipelinePageClient pipelineData={pipelineData} />;
 }
